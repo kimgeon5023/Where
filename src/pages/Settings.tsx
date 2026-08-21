@@ -4,11 +4,31 @@ import Icon from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import { useAuth } from '../auth/AuthContext'
 
+interface SettingsPreferences {
+  weatherRecommendations: boolean
+  courseNotifications: boolean
+  transport: 'public' | 'car'
+}
+
+const defaultPreferences: SettingsPreferences = { weatherRecommendations: true, courseNotifications: true, transport: 'public' }
+const preferencesKey = (userId: string) => `where-to-go-preferences:${userId}`
+
+function readPreferences(userId: string): SettingsPreferences {
+  if (!userId) return defaultPreferences
+  try {
+    const stored = localStorage.getItem(preferencesKey(userId))
+    return stored ? { ...defaultPreferences, ...JSON.parse(stored) as Partial<SettingsPreferences> } : defaultPreferences
+  } catch {
+    return defaultPreferences
+  }
+}
+
 export default function Settings() {
   const { user, updateProfile } = useAuth()
   const [name, setName] = useState(user?.name ?? '')
   const [preview, setPreview] = useState(user?.profileImage ?? '')
   const [message, setMessage] = useState('')
+  const [preferences, setPreferences] = useState<SettingsPreferences>(() => readPreferences(user?.id ?? ''))
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (!user) return <Navigate to="/" replace />
@@ -33,7 +53,13 @@ export default function Settings() {
 
   const save = () => {
     updateProfile({ name: name.trim() || '어디갈까 여행자', profileImage: preview })
+    localStorage.setItem(preferencesKey(user.id), JSON.stringify(preferences))
     setMessage('프로필을 저장했어요.')
+  }
+
+  const savePreferences = () => {
+    localStorage.setItem(preferencesKey(user.id), JSON.stringify(preferences))
+    setMessage('여행 설정을 저장했어요.')
   }
 
   return (
@@ -60,6 +86,15 @@ export default function Settings() {
           <label className="settings-field"><span>이름</span><input value={name} maxLength={30} onChange={(event) => setName(event.target.value)} placeholder="이름을 입력해 주세요" /></label>
           {message && <p className={`settings-message ${message.includes('저장') ? 'success' : 'error'}`}>{message}</p>}
           <button type="button" className="primary-button settings-save" onClick={save}><Icon name="check" size={17} /> 변경사항 저장</button>
+        </section>
+        <section className="settings-card preference-card">
+          <div className="settings-card-heading"><div><span className="step-label">PREFERENCES</span><h2>여행 추천 설정</h2></div><span className="provider-badge">나에게 맞춤</span></div>
+          <div className="preference-list">
+            <div className="preference-row"><div><strong>실시간 날씨 반영</strong><span>날씨에 맞춰 실내·야외 코스를 조절해요.</span></div><button type="button" className={`toggle-switch${preferences.weatherRecommendations ? ' active' : ''}`} aria-pressed={preferences.weatherRecommendations} onClick={() => setPreferences((current) => ({ ...current, weatherRecommendations: !current.weatherRecommendations }))}><i /></button></div>
+            <div className="preference-row"><div><strong>새 추천 코스 알림</strong><span>새로운 장소와 여행 아이디어를 알려드려요.</span></div><button type="button" className={`toggle-switch${preferences.courseNotifications ? ' active' : ''}`} aria-pressed={preferences.courseNotifications} onClick={() => setPreferences((current) => ({ ...current, courseNotifications: !current.courseNotifications }))}><i /></button></div>
+          </div>
+          <label className="settings-field transport-field"><span>기본 이동수단</span><select value={preferences.transport} onChange={(event) => setPreferences((current) => ({ ...current, transport: event.target.value as SettingsPreferences['transport'] }))}><option value="public">대중교통</option><option value="car">자가용</option></select></label>
+          <button type="button" className="outline-button preference-save" onClick={savePreferences}><Icon name="check" size={14} /> 여행 설정 저장</button>
         </section>
       </section>
     </main>

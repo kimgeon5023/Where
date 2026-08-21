@@ -32,7 +32,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     const trimmedUsername = username.trim()
     if (trimmedName.length < 2) return setError('닉네임을 2자 이상 입력해 주세요.')
     if (!/^[a-zA-Z0-9_]{4,20}$/.test(trimmedUsername)) return setError('아이디는 영문, 숫자, 밑줄 4~20자로 입력해 주세요.')
-    if (password.length < 8) return setError('비밀번호는 8자 이상 입력해 주세요.')
+    if (!/^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(password)) return setError('비밀번호는 영문과 숫자를 섞어 8자 이상 입력해 주세요.')
     if (password !== passwordConfirm) return setError('비밀번호가 서로 달라요.')
 
     setLoading(true)
@@ -64,7 +64,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
           <form className="signup-form" onSubmit={(event) => void submitSignup(event)}>
             <label><span>닉네임</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="여행자 이름" maxLength={20} /></label>
             <label><span>아이디</span><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
-            <label><span>비밀번호</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8자 이상" autoComplete="new-password" /></label>
+            <label><span>비밀번호</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="영문 + 숫자, 8자 이상" autoComplete="new-password" /></label>
             <label><span>비밀번호 확인</span><input type="password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} placeholder="비밀번호를 다시 입력" autoComplete="new-password" /></label>
             {error && <p className="signup-error">{error}</p>}
             <button type="submit" className="primary-button signup-submit" disabled={loading}>{loading ? '가입 중...' : '회원가입 완료'}</button>
