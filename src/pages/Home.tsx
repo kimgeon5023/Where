@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
+import WeatherWidget from '../components/WeatherWidget'
 import type { Companion, Tag, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
@@ -51,6 +52,7 @@ export default function Home() {
       <section className="form-card">
         <div className="form-card-head"><div><span className="step-label">STEP 01</span><h2>여행 조건을 알려주세요</h2></div><span className="form-card-count">1 / 2</span></div>
         <div className="form-section"><label className="field-label"><Icon name="pin" size={15} /> 어디서 출발하나요?</label><div className="input-wrap location-input"><Icon name="pin" size={16} /><input value={request.start} onChange={(event) => update('start', event.target.value)} placeholder="출발 지역을 입력하세요" /></div></div>
+        <WeatherWidget onConditionChange={(condition) => update('weather', condition)} />
         <div className="form-section"><label className="field-label"><Icon name="calendar" size={15} /> 언제 떠날까요?</label><div className="date-row"><div className="input-wrap"><input type="date" value={request.dateStart} onChange={(event) => update('dateStart', event.target.value)} /></div><span className="date-separator">→</span><div className="input-wrap"><input type="date" value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></div></div></div>
         <div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 누구와 함께하나요?</label><div className="companion-grid">{companions.map((item) => <button type="button" key={item.value} onClick={() => update('companion', item.value)} className={'companion-card' + (request.companion === item.value ? ' selected' : '')}><span className="companion-icon"><Icon name={item.icon} size={23} /></span><strong>{item.label}</strong><small>{item.caption}</small></button>)}</div></div>
         <div className="split-fields"><div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 몇 명인가요?</label><div className="stepper"><button type="button" onClick={() => update('headcount', Math.max(1, request.headcount - 1))}><Icon name="minus" size={15} /></button><strong>{request.headcount}<small>명</small></strong><button type="button" onClick={() => update('headcount', request.headcount + 1)}><Icon name="plus" size={15} /></button></div></div><div className="form-section"><label className="field-label"><Icon name="card" size={15} /> 1인 예산</label><div className="input-wrap budget-input"><input type="number" min="0" step="10000" value={request.budgetPerPerson} onChange={(event) => update('budgetPerPerson', Number(event.target.value))} /><span>원</span></div></div></div>
