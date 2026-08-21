@@ -28,6 +28,8 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
   const [status, setStatus] = useState<WeatherStatus>('idle')
   const [error, setError] = useState('')
   const abortController = useRef<AbortController | null>(null)
+  const onConditionChangeRef = useRef(onConditionChange)
+  onConditionChangeRef.current = onConditionChange
 
   const refreshWeather = useCallback(async (nextCoordinates: Coordinates) => {
     abortController.current?.abort()
@@ -39,15 +41,15 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
       const nextWeather = await fetchCurrentWeather(nextCoordinates, controller.signal)
       setWeather(nextWeather)
       setStatus('ready')
-      onConditionChange?.(nextWeather.condition)
+      onConditionChangeRef.current?.(nextWeather.condition)
     } catch (requestError) {
       if (requestError instanceof DOMException && requestError.name === 'AbortError') return
       setStatus('error')
       setError(getErrorMessage(requestError))
     }
-  }, [onConditionChange])
+  }, [])
 
-  const connectLocation = useCallback(() => {
+  const requestLocation = useCallback(() => {
     if (!weatherApiConfigured) {
       setStatus('error')
       setError('VITE_OPENWEATHER_API_KEY를 .env에 설정해 주세요.')
@@ -75,6 +77,10 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
   }, [refreshWeather])
 
   useEffect(() => {
+    requestLocation()
+  }, [requestLocation])
+
+  useEffect(() => {
     if (!coordinates) return
     const interval = window.setInterval(() => void refreshWeather(coordinates), 10 * 60 * 1000)
     return () => window.clearInterval(interval)
@@ -82,7 +88,6 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
 
   useEffect(() => () => abortController.current?.abort(), [])
 
-  const isBusy = status === 'locating' || status === 'loading'
   const icon = weather?.condition === 'sunny' ? 'sun' : weather?.condition === 'rain' ? 'rain' : 'cloud'
 
   return (
@@ -92,10 +97,6 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
           <span className="step-label">LIVE WEATHER</span>
           <h3>내 위치 실시간 날씨</h3>
         </div>
-        <button type="button" className="weather-location-button" onClick={connectLocation} disabled={isBusy}>
-          <Icon name="pin" size={14} />
-          {isBusy ? '확인 중...' : coordinates ? '새로고침' : 'GPS 연결'}
-        </button>
       </div>
       {weather && status === 'ready' ? (
         <div className="weather-live-content">
@@ -103,7 +104,7 @@ export default function WeatherWidget({ compact = false, onConditionChange }: We
           <div className="weather-live-meta"><span>체감 {weather.feelsLike}°</span><span>습도 {weather.humidity}%</span><span>바람 {weather.windSpeed}m/s</span><small>{formatUpdatedAt(weather.updatedAt)} 기준 · 10분마다 갱신</small></div>
         </div>
       ) : (
-        <p className={`weather-widget-message${status === 'error' ? ' is-error' : ''}`}>{error || 'GPS를 연결하면 현재 위치의 날씨를 보여드려요.'}</p>
+        <p className={`weather-widget-message${status === 'error' ? ' is-error' : ''}`}>{error || '현재 위치를 확인해 실시간 날씨를 불러오는 중이에요.'}</p>
       )}
     </section>
   )
