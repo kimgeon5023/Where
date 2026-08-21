@@ -8,6 +8,7 @@ import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
 import AuthActions from '../components/AuthActions'
+import WeatherWidget from '../components/WeatherWidget'
 
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
 const weatherLabels: Record<TripRequest['weather'], { icon: IconName; label: string; temp: string; rain: string }> = { sunny: { icon: 'sun', label: '맑음', temp: '27°', rain: '강수확률 10%' }, cloudy: { icon: 'cloud', label: '구름 조금', temp: '25°', rain: '강수확률 20%' }, rain: { icon: 'rain', label: '비', temp: '22°', rain: '강수확률 70%' } }
@@ -62,7 +63,7 @@ export default function Result() {
       </header>
       <section className="result-intro">
         <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
-        <div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div>
+        <div className="result-weather-live"><WeatherWidget compact /><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
