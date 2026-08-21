@@ -5,6 +5,7 @@ export type IconName =
   | 'friends' | 'heart' | 'family' | 'person' | 'cafe' | 'food' | 'photo' | 'nature'
   | 'activity' | 'shopping' | 'rest' | 'crowd' | 'mic' | 'pub' | 'fish' | 'arrow'
   | 'bed' | 'star' | 'clock' | 'route' | 'spark' | 'close' | 'check' | 'plus' | 'minus'
+  | 'settings' | 'logout' | 'camera'
 
 const paths: Partial<Record<IconName, ReactNode>> = {
   pin: <><path d="M12 21s7-6.2 7-12A7 7 0 0 0 5 9c0 5.8 7 12 7 12Z" /><circle cx="12" cy="9" r="2.2" /></>,
@@ -37,6 +38,9 @@ const paths: Partial<Record<IconName, ReactNode>> = {
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3 2" /></>,
   route: <><circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M8 18h3a3 3 0 0 0 3-3V9a3 3 0 0 1 3-3" /></>,
   spark: <path d="m12 2 1.4 6.6L20 10l-6.6 1.4L12 18l-1.4-6.6L4 10l6.6-1.4L12 2ZM19 16l.6 2.4L22 19l-2.4.6L19 22l-.6-2.4L16 19l2.4-.6L19 16Z" />,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-1.8 1.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5v.2h-2.6v-.2a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1-1.8-1.8.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H6.3v-2.6h.2a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1 1.8-1.8.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5v-.2H15v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1 1.8 1.8-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.2V14h-.2a1.7 1.7 0 0 0-1.5 1Z" /></>,
+  logout: <><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></>,
+  camera: <><path d="M4 8h3l1.5-2h7L17 8h3v11H4V8Z" /><circle cx="12" cy="13" r="3" /></>,
   close: <path d="m6 6 12 12M18 6 6 18" />, check: <path d="m5 12 4 4L19 6" />, plus: <path d="M12 5v14M5 12h14" />, minus: <path d="M5 12h14" />,
 }
 

@@ -15,8 +15,8 @@ const colors: Record<Place['category'], string> = {
   tour: '#1d9b77', photo: '#7b62c7', cafe: '#d48b48', food: '#e36b4e', activity: '#e05991', lodging: '#4d76bd',
 }
 
-export default function MapView({ places, center }: { places: Place[]; center: [number, number] }) {
-  const positions = places.map((place) => [place.lat, place.lng] as [number, number])
+export default function MapView({ places, center, routePlaces = places }: { places: Place[]; center: [number, number]; routePlaces?: Place[] }) {
+  const positions = routePlaces.map((place) => [place.lat, place.lng] as [number, number])
   return (
     <MapContainer center={center} zoom={12} scrollWheelZoom={false} className="trip-map">
       <TileLayer attribution='&copy; OpenStreetMap contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
