@@ -25,6 +25,7 @@ const initialRequest: TripRequest = {
   start: '서울', dateStart: '2026-08-22', dateEnd: '2026-08-23', companion: 'friends', headcount: 3,
   budgetPerPerson: 50000, transport: 'public', likes: ['cafe', 'foodie', 'photo', 'activity'], dislikes: ['crowded'], weather: 'sunny',
 }
+const seoulDistricts = ['서울 전체', '강남구', '강동구', '강북구', '강서구', '관악구', '광진구', '구로구', '금천구', '노원구', '도봉구', '동대문구', '동작구', '마포구', '서대문구', '서초구', '성동구', '성북구', '송파구', '양천구', '영등포구', '용산구', '은평구', '종로구', '중구', '중랑구']
 
 function ToggleChip({ label, icon, active, danger, onClick }: { label: string; icon: IconName; active: boolean; danger?: boolean; onClick: () => void }) {
   const classes = 'tag-chip' + (active ? (danger ? ' tag-chip-danger active' : ' active') : '')
@@ -35,6 +36,7 @@ export default function Home() {
   const navigate = useNavigate()
   const [request, setRequest] = useState<TripRequest>(initialRequest)
   const [error, setError] = useState('')
+  const [areaPickerOpen, setAreaPickerOpen] = useState(false)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const toggle = (key: 'likes' | 'dislikes', value: Tag) => setRequest((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((tag) => tag !== value) : [...current[key], value] }))
   const submit = () => {
@@ -47,7 +49,7 @@ export default function Home() {
       <section className="hero-copy"><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1>오늘은<br /><em>어디갈까?</em></h1><p>함께하는 사람, 예산, 취향만 알려주세요.<br />지금 딱 맞는 서울 하루를 만들어드릴게요.</p></section>
       <section className="form-card">
         <div className="form-card-head"><div><span className="step-label">STEP 01</span><h2>여행 조건을 알려주세요</h2></div><span className="form-card-count">1 / 2</span></div>
-        <div className="form-section"><label className="field-label"><Icon name="pin" size={15} /> 어디서 출발하나요?</label><div className="input-wrap location-input"><Icon name="pin" size={16} /><input value={request.start} onChange={(event) => update('start', event.target.value)} placeholder="출발 지역을 입력하세요" /></div></div>
+        <div className="form-section"><label className="field-label"><Icon name="pin" size={15} /> 어디서 출발하나요?</label><div className="area-picker"><div className="input-wrap location-input"><Icon name="pin" size={16} /><input value={request.start} onChange={(event) => update('start', event.target.value)} placeholder="출발 지역을 입력하세요" /><button type="button" className="area-dropdown-button" aria-label="서울 구 선택" aria-expanded={areaPickerOpen} onClick={() => setAreaPickerOpen((open) => !open)}><span /></button></div>{areaPickerOpen && <div className="area-dropdown" role="listbox" aria-label="서울 구 목록">{seoulDistricts.map((district) => <button type="button" key={district} className={request.start === district || (district === '서울 전체' && request.start === '서울') ? 'selected' : ''} onClick={() => { update('start', district === '서울 전체' ? '서울' : district); setAreaPickerOpen(false) }}>{district}</button>)}</div>}</div></div>
         <WeatherWidget onConditionChange={(condition) => update('weather', condition)} />
         <div className="form-section"><label className="field-label"><Icon name="calendar" size={15} /> 언제 떠날까요?</label><div className="date-row"><div className="input-wrap"><input type="date" value={request.dateStart} onChange={(event) => update('dateStart', event.target.value)} /></div><span className="date-separator">→</span><div className="input-wrap"><input type="date" value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></div></div></div>
         <div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 누구와 함께하나요?</label><div className="companion-grid">{companions.map((item) => <button type="button" key={item.value} onClick={() => update('companion', item.value)} className={'companion-card' + (request.companion === item.value ? ' selected' : '')}><span className="companion-icon"><Icon name={item.icon} size={23} /></span><strong>{item.label}</strong><small>{item.caption}</small></button>)}</div></div>

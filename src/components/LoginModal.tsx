@@ -36,9 +36,14 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     if (password !== passwordConfirm) return setError('비밀번호가 서로 달라요.')
 
     setLoading(true)
-    await signUpWithPassword({ name: trimmedName, username: trimmedUsername, password })
-    setLoading(false)
-    onClose()
+    try {
+      await signUpWithPassword({ name: trimmedName, username: trimmedUsername, password })
+      onClose()
+    } catch (signupError) {
+      setError(signupError instanceof Error ? signupError.message : '회원가입을 처리하지 못했습니다.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const socialButton = (provider: SocialProvider) => (

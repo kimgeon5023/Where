@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { apiUrl } from '../lib/api'
 
 export type SocialProvider = 'google' | 'kakao'
 export type AccountProvider = SocialProvider | 'password'
@@ -9,6 +10,7 @@ export interface User {
   email: string
   provider: AccountProvider
   profileImage: string
+  sourceSite?: string
   createdAt: string
 }
 
@@ -66,16 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(nextUser)
       saveUser(nextUser)
     },
-    // TODO: 백엔드 연결 전까지 가입 직후 로그인 상태만 시뮬레이션합니다.
-    signUpWithPassword: async ({ username, name }) => {
-      const nextUser: User = {
-        id: username,
-        name,
-        email: `${username}@where-to-go.local`,
-        provider: 'password',
-        profileImage: '',
-        createdAt: new Date().toISOString(),
-      }
+    signUpWithPassword: async ({ username, name, password }) => {
+      const response = await fetch(apiUrl('/api/auth/signup'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, name, password }),
+      })
+      const body = await response.json() as { user?: User; error?: string }
+      if (!response.ok || !body.user) throw new Error(body.error || '회원가입을 처리하지 못했습니다.')
+      const nextUser = body.user
       setUser(nextUser)
       saveUser(nextUser)
     },

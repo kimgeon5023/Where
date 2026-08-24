@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import Home from './Home'
 import { places } from '../data/places'
+import { searchPlaces } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend } from '../lib/scoring'
-import type { TripRequest } from '../types'
+import type { Category, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
@@ -13,6 +14,10 @@ import WeatherWidget from '../components/WeatherWidget'
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
 const weatherLabels: Record<TripRequest['weather'], { icon: IconName; label: string; temp: string; rain: string }> = { sunny: { icon: 'sun', label: '맑음', temp: '27°', rain: '강수확률 10%' }, cloudy: { icon: 'cloud', label: '구름 조금', temp: '25°', rain: '강수확률 20%' }, rain: { icon: 'rain', label: '비', temp: '22°', rain: '강수확률 70%' } }
 const categoryIcons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
+const searchCategories: { value?: Category; label: string }[] = [
+  { label: '전체' }, { value: 'food', label: '맛집' }, { value: 'cafe', label: '카페' },
+  { value: 'tour', label: '관광지' }, { value: 'lodging', label: '숙소' }, { value: 'activity', label: '액티비티' },
+]
 
 function dateLabel(date: string) {
   if (!date) return ''
@@ -30,9 +35,29 @@ export default function Result() {
   const req = location.state as TripRequest | null
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
+  const [category, setCategory] = useState<Category | undefined>()
+  const [apiPlaces, setApiPlaces] = useState(places)
+  const [apiError, setApiError] = useState('')
+
+  useEffect(() => {
+    if (!req) return
+    const controller = new AbortController()
+    setApiError('')
+    searchPlaces({ area: req.start, category, limit: 100 }, controller.signal)
+      .then(({ data }) => {
+        if (data.length > 0) setApiPlaces(data)
+        else return searchPlaces({ category, limit: 100 }, controller.signal).then(({ data: all }) => setApiPlaces(all))
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setApiError('장소 API에 연결하지 못해 기본 장소를 표시합니다.')
+        setApiPlaces(places)
+      })
+    return () => controller.abort()
+  }, [req, category])
 
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
-  const scored = useMemo(() => req ? recommend(places, req, excluded) : [], [req, excluded])
+  const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded) : [], [req, apiPlaces, excluded])
   const itineraries = useMemo(() => buildItineraries(scored, dayCount), [scored, dayCount])
   const currentCourse = itineraries[day] ?? []
   const allCourse = useMemo(() => {
@@ -68,6 +93,10 @@ export default function Result() {
       <section className="result-layout">
         <div className="itinerary-column">
           <div className="section-heading"><div><span className="step-label">RECOMMENDED ROUTE</span><h2>당신을 위한 맞춤 코스</h2></div><span className="result-count">{scored.length}개의 장소를 찾았어요</span></div>
+          {apiError && <p className="form-error">{apiError}</p>}
+          <div className="tag-list" aria-label="장소 카테고리 검색">
+            {searchCategories.map((item) => <button type="button" key={item.label} className={'tag-chip' + (category === item.value ? ' active' : '')} onClick={() => { setCategory(item.value); setDay(0) }}>{item.label}</button>)}
+          </div>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {day === 0 ? '성수와 서울숲' : '서울의 새로운 하루'}</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
