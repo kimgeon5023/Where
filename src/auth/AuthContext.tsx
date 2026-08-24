@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
 import { apiUrl } from '../lib/api'
 
-export type SocialProvider = 'google' | 'kakao'
+export type SocialProvider = 'google'
 export type AccountProvider = SocialProvider | 'password'
 
 export interface User {
@@ -30,20 +30,40 @@ interface AuthContextValue {
 }
 
 const STORAGE_KEY = 'where-to-go-auth-user'
-const demoUsers: Record<SocialProvider, User> = {
-  google: { id: 'demo-google-user', name: '어디갈까 여행자', email: 'traveler@gmail.com', provider: 'google', profileImage: '', createdAt: new Date().toISOString() },
-  kakao: { id: 'demo-kakao-user', name: '어디갈까 여행자', email: 'traveler@kakao.com', provider: 'kakao', profileImage: '', createdAt: new Date().toISOString() },
+
+function oauthCallbackUser() {
+  const parameters = new URLSearchParams(window.location.hash.slice(1))
+  const encodedUser = parameters.get('oauth_user')
+  const oauthError = parameters.get('oauth_error')
+  if (!encodedUser && !oauthError) return null
+
+  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  if (oauthError) {
+    window.alert(oauthError)
+    return null
+  }
+
+  try {
+    const base64 = encodedUser!.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(encodedUser!.length / 4) * 4, '=')
+    const binary = atob(base64)
+    const user = JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)))) as User
+    if (!user.id || user.provider !== 'google') throw new Error('INVALID_OAUTH_USER')
+    saveUser(user)
+    return user
+  } catch {
+    window.alert('로그인 정보를 확인하지 못했습니다.')
+    return null
+  }
 }
 
 function readStoredUser() {
+  const callbackUser = oauthCallbackUser()
+  if (callbackUser) return callbackUser
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (!stored) return null
     const user = JSON.parse(stored) as User
-    // 예전 mock 소셜 로그인 세션은 소셜 버튼을 비활성화하면서 함께 초기화합니다.
-    if (user.provider === 'password') return user
-    localStorage.removeItem(STORAGE_KEY)
-    return null
+    return user.id && ['password', 'google'].includes(user.provider) ? user : null
   } catch {
     return null
   }
@@ -62,11 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     user,
     isLoggedIn: Boolean(user),
-    // TODO: 백엔드 연결 시 이 mock을 Google·카카오 OAuth 호출로 교체합니다.
     signIn: async (provider) => {
-      const nextUser = { ...demoUsers[provider], createdAt: new Date().toISOString() }
-      setUser(nextUser)
-      saveUser(nextUser)
+      window.location.assign(apiUrl(`/api/auth/oauth/${provider}`))
     },
     signUpWithPassword: async ({ username, name, password }) => {
       const response = await fetch(apiUrl('/api/auth/signup'), {

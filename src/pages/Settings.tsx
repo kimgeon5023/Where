@@ -74,7 +74,7 @@ export default function Settings() {
         <h1>내 프로필을<br /><em>꾸며볼까요?</em></h1>
         <p className="settings-description">여행 추천에 사용할 나만의 프로필 정보를 관리해요.</p>
         <section className="settings-card">
-          <div className="settings-card-heading"><div><span className="step-label">PROFILE</span><h2>프로필 정보</h2></div><span className="provider-badge">{user.provider === 'google' ? 'Google 연동' : user.provider === 'kakao' ? '카카오 연동' : '아이디 가입'}</span></div>
+          <div className="settings-card-heading"><div><span className="step-label">PROFILE</span><h2>프로필 정보</h2></div><span className="provider-badge">{user.provider === 'google' ? 'Google 연동' : '아이디 가입'}</span></div>
           <div className="profile-editor">
             <div className="profile-upload">
               {preview ? <img className="avatar avatar-xl" src={preview} alt="프로필 미리보기" /> : <span className="avatar avatar-xl avatar-fallback">{user.name.slice(0, 1)}</span>}

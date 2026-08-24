@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Icon from './Icon'
-import { useAuth, type SocialProvider } from '../auth/AuthContext'
+import { useAuth } from '../auth/AuthContext'
 
 interface LoginModalProps {
   open: boolean
@@ -10,7 +10,7 @@ interface LoginModalProps {
 type ModalMode = 'social' | 'signup'
 
 export default function LoginModal({ open, onClose }: LoginModalProps) {
-  const { signUpWithPassword } = useAuth()
+  const { signIn, signUpWithPassword } = useAuth()
   const [mode, setMode] = useState<ModalMode>('social')
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
@@ -18,6 +18,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [socialLoading, setSocialLoading] = useState(false)
 
   if (!open) return null
 
@@ -46,10 +47,21 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     }
   }
 
-  const socialButton = (provider: SocialProvider) => (
-    <button type="button" className={`social-button ${provider === 'google' ? 'google-button' : 'kakao-button'}`} disabled aria-disabled="true">
-      <span className={`social-logo ${provider === 'google' ? 'google-logo' : 'kakao-logo'}`}>{provider === 'google' ? 'G' : '●'}</span>
-      {provider === 'google' ? 'Google 로그인 준비 중' : '카카오 로그인 준비 중'}
+  const startSocialLogin = async () => {
+    setError('')
+    setSocialLoading(true)
+    try {
+      await signIn('google')
+    } catch {
+      setSocialLoading(false)
+      setError('소셜 로그인을 시작하지 못했습니다.')
+    }
+  }
+
+  const googleButton = (
+    <button type="button" className="social-button google-button" disabled={socialLoading} onClick={() => void startSocialLogin()}>
+      <span className="social-logo google-logo">G</span>
+      {socialLoading ? '로그인 화면으로 이동 중...' : 'Google 계정으로 로그인'}
     </button>
   )
 
@@ -61,8 +73,9 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
         <span className="eyebrow">WELCOME TO WHERE TO GO</span>
         <h2 id="login-title">{mode === 'social' ? <>여행 취향을<br /><em>저장해볼까요?</em></> : <>어디갈까에<br /><em>가입해볼까요?</em></>}</h2>
         {mode === 'social' ? <>
-          <p>현재 소셜 로그인은 준비 중이에요.<br />먼저 아이디로 회원가입할 수 있어요.</p>
-          <div className="social-buttons">{socialButton('google')}{socialButton('kakao')}</div>
+          <p>사용하는 계정으로<br />간편하게 로그인하세요.</p>
+          {error && <p className="signup-error">{error}</p>}
+          <div className="social-buttons">{googleButton}</div>
           <button type="button" className="signup-switch" onClick={() => changeMode('signup')}>아이디로 회원가입하기 <span>→</span></button>
         </> : <>
           <p>아이디와 비밀번호를 입력해<br />나만의 여행 프로필을 만들어 보세요.</p>
@@ -76,7 +89,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
           </form>
           <button type="button" className="signup-switch back-to-social" onClick={() => changeMode('social')}>← 소셜 로그인 화면으로</button>
         </>}
-        {mode === 'social' && <small className="login-note">Google·카카오 로그인은 백엔드 연결 후 이용할 수 있어요.</small>}
+        {mode === 'social' && <small className="login-note">계정 정보는 Google 동의 화면을 통해서만 전달됩니다.</small>}
       </section>
     </div>
   )
