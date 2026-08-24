@@ -1,10 +1,23 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
+import { extname, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { eunpyeongPlaces } from './eunpyeongPlaces.mjs'
 import { createPasswordUser, initializeDatabase, listUsers, siteId } from './database.mjs'
 
 const existingPlaces = JSON.parse(await readFile(new URL('../src/data/places.json', import.meta.url), 'utf8'))
 const places = [...eunpyeongPlaces, ...existingPlaces]
+const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
+const contentTypes = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+}
 const searchableCategories = new Set(['food', 'cafe', 'tour', 'lodging', 'activity'])
 const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
@@ -69,6 +82,29 @@ function validateSignup(input) {
   return { value: { name, username, password } }
 }
 
+async function serveStatic(url, response) {
+  const requestedPath = decodeURIComponent(url.pathname)
+  const relativePath = requestedPath === '/' ? '/index.html' : requestedPath
+  const candidate = resolve(staticRoot, `.${relativePath}`)
+  if (candidate !== staticRoot && !candidate.startsWith(`${staticRoot}${sep}`)) return false
+
+  let filePath = candidate
+  try {
+    await readFile(filePath)
+  } catch {
+    if (extname(relativePath)) return false
+    filePath = resolve(staticRoot, 'index.html')
+  }
+
+  const body = await readFile(filePath)
+  response.writeHead(200, {
+    'Cache-Control': extname(filePath) === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream',
+  })
+  response.end(body)
+  return true
+}
+
 await initializeDatabase()
 
 createServer(async (request, response) => {
@@ -92,5 +128,6 @@ createServer(async (request, response) => {
     const result = findPlaces(url)
     return 'error' in result ? sendJson(response, 400, result) : sendJson(response, 200, result)
   }
+  if (request.method === 'GET' && await serveStatic(url, response)) return
   return sendJson(response, 404, { error: 'Not found' })
 }).listen(port, () => console.log(`Where API: http://localhost:${port}`))
