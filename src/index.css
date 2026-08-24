@@ -65,11 +65,8 @@ a { color: inherit; text-decoration: none; }
 .social-button[disabled] { cursor: not-allowed; filter: saturate(.55); }
 .google-button { border: 1px solid #e1e5e1; background: #fff; color: #3f4740; }
 .google-button:hover { background: #f8faf8; }
-.kakao-button { background: #fee500; color: #342b00; }
-.kakao-button:hover { background: #f4d900; }
 .social-logo { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-weight: 800; }
 .google-logo { color: #4285f4; font-family: Arial, sans-serif; font-size: 16px; }
-.kakao-logo { color: #342b00; font-size: 11px; }
 .login-note { display: block; margin-top: 18px; color: #aab2aa; font-size: 10px; }
 .signup-switch { display: inline-flex; align-items: center; gap: 7px; margin-top: 20px; padding: 0; border: 0; background: transparent; color: var(--green); font-size: 11px; font-weight: 700; }
 .signup-switch:hover { text-decoration: underline; }
