@@ -4,6 +4,7 @@ import pg from 'pg'
 const { Pool } = pg
 const connectionString = process.env.DATABASE_URL?.trim()
 const useSsl = process.env.DATABASE_SSL !== 'false'
+const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
 
 if (!connectionString) {
   throw new Error('DATABASE_URL is required. Add the cloud PostgreSQL connection URL to Where/.env.')
@@ -13,7 +14,7 @@ export const siteId = process.env.SITE_ID?.trim() || 'where-main'
 
 const database = new Pool({
   connectionString,
-  ssl: useSsl ? { rejectUnauthorized: true } : false,
+  ssl: useSsl ? { rejectUnauthorized } : false,
   max: Number(process.env.DATABASE_POOL_SIZE || 10),
   connectionTimeoutMillis: 10_000,
   idleTimeoutMillis: 30_000,
