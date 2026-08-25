@@ -26,6 +26,7 @@ const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configured
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
 const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY?.trim() || ''
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
+const kakaoCategoryKeywords = { food: '맛집', cafe: '카페', tour: '가볼만한곳', photo: '사진명소', activity: '놀거리', lodging: '숙소' }
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -129,15 +130,20 @@ function kakaoPlaceToPlace(item, category, origin) {
   return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: [], groupFit: ['friends', 'couple', 'family', 'alone'], indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
 }
 
-async function searchKakaoPlaces(url, category, keyword, limit, origin) {
+async function searchKakaoPlaces(url, category, keyword, area, limit, origin) {
   if (!kakaoRestApiKey) return null
-  const endpoint = keyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(origin.lng), y: String(origin.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 20000), 20000)), ...(keyword ? { query: keyword } : { category_group_code: kakaoCategoryCodes[category || 'tour'] }) })
+  const selectedDistrict = /구$/.test(area)
+  const searchKeyword = keyword || (selectedDistrict ? `${area} ${kakaoCategoryKeywords[category || 'activity']}` : '')
+  const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
+  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(origin.lng), y: String(origin.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 20000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[category || 'tour'] }) })
   const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
   if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
   const payload = await response.json()
-  const data = (payload.documents || []).map((item) => kakaoPlaceToPlace(item, category || 'tour', origin)).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
-  return { data, meta: { total: data.length, area: '서울', category: category || 'all', source: 'kakao' } }
+  const documents = selectedDistrict
+    ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area))
+    : (payload.documents || [])
+  const data = documents.map((item) => kakaoPlaceToPlace(item, category || 'activity', origin)).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
+  return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao' } }
 }
 
 async function findPlaces(url) {
@@ -152,9 +158,9 @@ async function findPlaces(url) {
   }
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
-  if (kakaoRestApiKey && (category || keyword)) {
+  if (kakaoRestApiKey && (category || keyword || /구$/.test(area))) {
     try {
-      const live = await searchKakaoPlaces(url, category, keyword, limit, origin)
+      const live = await searchKakaoPlaces(url, category, keyword, area, limit, origin)
       if (live) return live
     } catch (error) { console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR') }
   }

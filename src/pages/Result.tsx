@@ -34,7 +34,7 @@ function matchesSelectedArea(place: Place, area: string) {
   const target = area.trim().toLowerCase()
   if (!target || target === '서울' || target === '서울 전체') return true
   const placeWithDistrict = place as Place & { district?: string }
-  return [place.area, placeWithDistrict.district].filter(Boolean).some((value) => value!.toLowerCase() === target)
+  return [place.area, placeWithDistrict.district].filter(Boolean).some((value) => value!.toLowerCase().includes(target))
 }
 
 export default function Result() {
