@@ -41,6 +41,7 @@ export default function Home() {
   const toggle = (key: 'likes' | 'dislikes', value: Tag) => setRequest((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((tag) => tag !== value) : [...current[key], value] }))
   useEffect(() => {
     if (request.companion === 'couple' && request.headcount !== 2) update('headcount', 2)
+    if (request.companion === 'alone' && request.headcount !== 1) update('headcount', 1)
   }, [request.companion, request.headcount])
   useEffect(() => {
     const stepper = document.querySelector('.stepper')?.parentElement
@@ -52,13 +53,16 @@ export default function Home() {
       existing?.remove()
       return
     }
-    if (partyNotice) setError('')
-    if (partyNotice) {
+    if (false && partyNotice && stepper) setError('')
+    if (false && partyNotice && stepper) {
       const notice = existing ?? document.createElement('p')
       notice.className = 'field-hint party-notice'
       notice.textContent = partyNotice
       if (!existing) stepper.appendChild(notice)
     } else if (existing) existing.remove()
+  }, [partyNotice, request.companion])
+  useEffect(() => {
+    if (request.companion === 'couple' && partyNotice) setError('')
   }, [partyNotice, request.companion])
   useEffect(() => {
     const plusButton = document.querySelector('.stepper button:last-child')
