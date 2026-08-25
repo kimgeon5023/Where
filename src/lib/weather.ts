@@ -18,7 +18,8 @@ export interface CurrentWeather {
 }
 
 const apiKey = import.meta.env.VITE_OPENWEATHER_API_KEY as string | undefined
-export const weatherApiConfigured = Boolean(apiKey)
+// A provider is always available: OpenWeather is optional and Open-Meteo is the keyless fallback.
+export const weatherApiConfigured = true
 
 function conditionFromWeatherId(id: number): WeatherCondition {
   if (id >= 200 && id < 700) return 'rain'
@@ -27,7 +28,7 @@ function conditionFromWeatherId(id: number): WeatherCondition {
 }
 
 export async function fetchCurrentWeather(coordinates: Coordinates, signal?: AbortSignal): Promise<CurrentWeather> {
-  if (!apiKey) throw new Error('OPENWEATHER_API_KEY_MISSING')
+  if (!apiKey) return fetchOpenMeteoWeather(coordinates, signal)
 
   const params = new URLSearchParams({
     lat: coordinates.lat.toFixed(6),
@@ -53,6 +54,45 @@ export async function fetchCurrentWeather(coordinates: Coordinates, signal?: Abo
     windSpeed: Math.round((payload.wind?.speed || 0) * 10) / 10,
     icon: current.icon,
     condition: conditionFromWeatherId(current.id),
+    updatedAt: Date.now(),
+  }
+}
+
+function conditionFromOpenMeteoCode(code: number): WeatherCondition {
+  if ([0, 1].includes(code)) return 'sunny'
+  if (code >= 51) return 'rain'
+  return 'cloudy'
+}
+
+function descriptionFromOpenMeteoCode(code: number) {
+  if (code === 0) return '맑음'
+  if (code <= 3) return '구름 조금'
+  if (code <= 48) return '흐림'
+  if (code <= 67 || code >= 80) return '비'
+  if (code <= 77) return '눈'
+  return '흐림'
+}
+
+async function fetchOpenMeteoWeather(coordinates: Coordinates, signal?: AbortSignal): Promise<CurrentWeather> {
+  const params = new URLSearchParams({
+    latitude: coordinates.lat.toFixed(6),
+    longitude: coordinates.lon.toFixed(6),
+    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m',
+    timezone: 'auto',
+  })
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { signal })
+  const payload = await response.json() as { current?: { temperature_2m: number; relative_humidity_2m: number; apparent_temperature: number; weather_code: number; wind_speed_10m: number } }
+  if (!response.ok || !payload.current) throw new Error('WEATHER_REQUEST_FAILED')
+  const current = payload.current
+  return {
+    cityName: '현재 위치',
+    description: descriptionFromOpenMeteoCode(current.weather_code),
+    temp: Math.round(current.temperature_2m),
+    feelsLike: Math.round(current.apparent_temperature),
+    humidity: current.relative_humidity_2m,
+    windSpeed: Math.round(current.wind_speed_10m * 10) / 10,
+    icon: '',
+    condition: conditionFromOpenMeteoCode(current.weather_code),
     updatedAt: Date.now(),
   }
 }
