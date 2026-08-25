@@ -26,7 +26,9 @@ const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configured
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
 const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY?.trim() || ''
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
-const kakaoCategoryKeywords = { food: '맛집', cafe: '카페', tour: '가볼만한곳', photo: '사진명소', activity: '놀거리', lodging: '숙소' }
+const seoulDistrictCenters = {
+  강남구: [37.5172, 127.0473], 강동구: [37.5301, 127.1238], 강북구: [37.6396, 127.0257], 강서구: [37.5509, 126.8495], 관악구: [37.4784, 126.9516], 광진구: [37.5385, 127.0823], 구로구: [37.4954, 126.8874], 금천구: [37.4569, 126.8955], 노원구: [37.6542, 127.0568], 도봉구: [37.6688, 127.0471], 동대문구: [37.5744, 127.0396], 동작구: [37.5124, 126.9393], 마포구: [37.5663, 126.9019], 서대문구: [37.5791, 126.9368], 서초구: [37.4837, 127.0324], 성동구: [37.5633, 127.0371], 성북구: [37.5894, 127.0167], 송파구: [37.5145, 127.1059], 양천구: [37.5170, 126.8664], 영등포구: [37.5264, 126.8962], 용산구: [37.5326, 126.9906], 은평구: [37.6027, 126.9291], 종로구: [37.5735, 126.9788], 중구: [37.5641, 126.9979], 중랑구: [37.6063, 127.0927],
+}
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -133,9 +135,11 @@ function kakaoPlaceToPlace(item, category, origin) {
 async function searchKakaoPlaces(url, category, keyword, area, limit, origin) {
   if (!kakaoRestApiKey) return null
   const selectedDistrict = /구$/.test(area)
-  const searchKeyword = keyword || (selectedDistrict ? `${area} ${kakaoCategoryKeywords[category || 'activity']}` : '')
+  const searchKeyword = keyword
+  const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
+  const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
   const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(origin.lng), y: String(origin.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 20000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[category || 'tour'] }) })
+  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[category || 'activity'] }) })
   const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
   if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
   const payload = await response.json()
