@@ -35,7 +35,6 @@ export default function Home() {
   const navigate = useNavigate()
   const [request, setRequest] = useState<TripRequest>(initialRequest)
   const [error, setError] = useState('')
-  const [partyNotice, setPartyNotice] = useState('')
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const toggle = (key: 'likes' | 'dislikes', value: Tag) => setRequest((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((tag) => tag !== value) : [...current[key], value] }))
@@ -43,41 +42,6 @@ export default function Home() {
     if (request.companion === 'couple' && request.headcount !== 2) update('headcount', 2)
     if (request.companion === 'alone' && request.headcount !== 1) update('headcount', 1)
   }, [request.companion, request.headcount])
-  useEffect(() => {
-    const stepper = document.querySelector('.stepper')?.parentElement
-    if (!stepper) return
-    const existing = stepper.querySelector('.party-notice')
-    if (request.companion !== 'couple') {
-      if (partyNotice) setPartyNotice('')
-      setError('')
-      existing?.remove()
-      return
-    }
-    if (false && partyNotice && stepper) setError('')
-    if (false && partyNotice && stepper) {
-      const notice = existing ?? document.createElement('p')
-      notice.className = 'field-hint party-notice'
-      notice.textContent = partyNotice
-      if (!existing) stepper?.appendChild(notice)
-    } else if (existing) existing.remove()
-  }, [partyNotice, request.companion])
-  useEffect(() => {
-    if (request.companion === 'couple' && partyNotice) setError('')
-  }, [partyNotice, request.companion])
-  useEffect(() => {
-    const plusButton = document.querySelector('.stepper button:last-child')
-    if (!plusButton) return
-    const handleCoupleCount = (event: Event) => {
-      if (request.companion !== 'couple') return
-      event.preventDefault()
-      event.stopPropagation()
-      update('headcount', 2)
-      setPartyNotice('바람 피는 행동은 나빠요')
-      setError('바람 피는 행동은 나빠요')
-    }
-    plusButton.addEventListener('click', handleCoupleCount, true)
-    return () => plusButton.removeEventListener('click', handleCoupleCount, true)
-  }, [request.companion])
   const submit = () => {
     if (!request.dateStart || !request.dateEnd || request.dateEnd < request.dateStart) { setError('여행 날짜를 올바르게 선택해 주세요.'); return }
     setError(''); navigate('/result', { state: request })
