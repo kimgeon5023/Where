@@ -70,7 +70,7 @@ Every deployment uses the same `DATABASE_URL` and a different `SITE_ID`:
 
 This keeps all accounts in the same `users` table while `source_site` records where each signup came from. Usernames are globally unique across every connected site.
 
-Start the API with `npm run dev:api`. To copy the preserved SQLite users into PostgreSQL once, run `npm run db:migrate` after configuring `.env`. Existing usernames are skipped, so the migration can be run safely again.
+Start the API with `npm run dev:api`. PostgreSQL is the only runtime membership database.
 
 For a cloud deployment, use `npm start`. The server uses the host-provided `PORT` value and defaults to `3001` locally.
 
@@ -79,3 +79,22 @@ When the frontend and API use different hosts, set `VITE_API_BASE_URL` during th
 ```env
 VITE_API_BASE_URL=https://where-api.onrender.com
 ```
+
+## Google OAuth login
+
+The social login buttons use an authorization-code flow through the Render API. Add these environment variables to the Render web service:
+
+```env
+FRONTEND_URL=https://your-vercel-site.vercel.app
+API_BASE_URL=https://your-render-api.onrender.com
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+```
+
+Register the following redirect URIs in the provider consoles, replacing the host with the deployed Render API host:
+
+```text
+https://your-render-api.onrender.com/api/auth/oauth/google/callback
+```
+
+For local OAuth testing, also register `http://localhost:3001/api/auth/oauth/google/callback`. Google requires a Web application OAuth client.

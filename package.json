@@ -7,7 +7,6 @@
     "dev": "vite",
     "dev:api": "node --env-file-if-exists=.env backend/server.mjs",
     "start": "node --env-file-if-exists=.env backend/server.mjs",
-    "db:migrate": "node --env-file-if-exists=.env backend/migrate-sqlite-to-postgres.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

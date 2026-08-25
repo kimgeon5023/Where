@@ -38,15 +38,22 @@ export default function Result() {
   const [category, setCategory] = useState<Category | undefined>()
   const [apiPlaces, setApiPlaces] = useState(places)
   const [apiError, setApiError] = useState('')
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    const watchId = navigator.geolocation.watchPosition((position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }), undefined, { enableHighAccuracy: true, maximumAge: 30000 })
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [])
 
   useEffect(() => {
     if (!req) return
     const controller = new AbortController()
     setApiError('')
-    searchPlaces({ area: req.start, category, limit: 100 }, controller.signal)
+    searchPlaces({ area: req.start, category, limit: 100, ...userLocation }, controller.signal)
       .then(({ data }) => {
         if (data.length > 0) setApiPlaces(data)
-        else return searchPlaces({ category, limit: 100 }, controller.signal).then(({ data: all }) => setApiPlaces(all))
+        else return searchPlaces({ category, limit: 100, ...userLocation }, controller.signal).then(({ data: all }) => setApiPlaces(all))
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
@@ -54,7 +61,7 @@ export default function Result() {
         setApiPlaces(places)
       })
     return () => controller.abort()
-  }, [req, category])
+  }, [req, category, userLocation])
 
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
   const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded) : [], [req, apiPlaces, excluded])

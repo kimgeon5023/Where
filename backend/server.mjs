@@ -1,13 +1,18 @@
 import { createServer } from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { eunpyeongPlaces } from './eunpyeongPlaces.mjs'
-import { createPasswordUser, initializeDatabase, listUsers, siteId } from './database.mjs'
+import { createPasswordUser, initializeDatabase, listUsers, siteId, upsertGoogleUser } from './database.mjs'
+import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const existingPlaces = JSON.parse(await readFile(new URL('../src/data/places.json', import.meta.url), 'utf8'))
 const places = [...eunpyeongPlaces, ...existingPlaces]
 const searchableCategories = new Set(['food', 'cafe', 'tour', 'lodging', 'activity'])
 const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
+const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
+const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY?.trim() || ''
+const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -19,13 +24,110 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body))
 }
 
+function redirect(response, location, cookies = []) {
+  const headers = { Location: location }
+  if (cookies.length) headers['Set-Cookie'] = cookies
+  response.writeHead(302, headers)
+  response.end()
+}
+
+function requestOrigin(request) {
+  if (process.env.API_BASE_URL?.trim()) return process.env.API_BASE_URL.trim().replace(/\/$/, '')
+  const forwardedProtocol = request.headers['x-forwarded-proto']
+  const protocol = typeof forwardedProtocol === 'string' ? forwardedProtocol.split(',')[0] : 'http'
+  return `${protocol}://${request.headers.host || `localhost:${port}`}`
+}
+
+function oauthCallbackUri(request) {
+  return `${requestOrigin(request)}/api/auth/oauth/google/callback`
+}
+
+function parseCookies(request) {
+  return Object.fromEntries((request.headers.cookie || '').split(';').filter(Boolean).map((item) => {
+    const [key, ...value] = item.trim().split('=')
+    return [key, decodeURIComponent(value.join('='))]
+  }))
+}
+
+function oauthStateCookie(value, request, maxAge = 600) {
+  const secure = requestOrigin(request).startsWith('https://') ? '; Secure' : ''
+  return `where_oauth_state=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/api/auth/oauth/google/callback; HttpOnly; SameSite=Lax${secure}`
+}
+
+function frontendOAuthRedirect(response, { user, error }, cookies = []) {
+  const fragment = user
+    ? `oauth_user=${Buffer.from(JSON.stringify(user)).toString('base64url')}`
+    : `oauth_error=${encodeURIComponent(error || '소셜 로그인을 완료하지 못했습니다.')}`
+  redirect(response, `${frontendUrl}/#${fragment}`, cookies)
+}
+
+async function startGoogleOAuth(request, response) {
+  try {
+    const state = randomBytes(32).toString('base64url')
+    const location = createGoogleAuthorizationUrl({
+      redirectUri: oauthCallbackUri(request),
+      state,
+    })
+    redirect(response, location, [oauthStateCookie(state, request)])
+  } catch (error) {
+    const message = error instanceof Error && error.message === 'OAUTH_PROVIDER_NOT_CONFIGURED'
+      ? 'Google 로그인 키가 설정되지 않았습니다.'
+      : '소셜 로그인을 시작하지 못했습니다.'
+    frontendOAuthRedirect(response, { error: message })
+  }
+}
+
+async function completeGoogleOAuth(request, response, url) {
+  const clearedCookie = oauthStateCookie('', request, 0)
+  try {
+    if (url.searchParams.has('error')) throw new Error('OAUTH_ACCESS_DENIED')
+    const code = url.searchParams.get('code')
+    const state = url.searchParams.get('state')
+    const savedState = parseCookies(request).where_oauth_state
+    if (!code || !state || !savedState || state !== savedState) throw new Error('OAUTH_STATE_INVALID')
+
+    const profile = await fetchGoogleProfile(code, oauthCallbackUri(request))
+    const user = await upsertGoogleUser(profile)
+    frontendOAuthRedirect(response, { user }, [clearedCookie])
+  } catch (error) {
+    console.error('Google OAuth callback failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
+    const message = error instanceof Error && error.message === 'OAUTH_ACCESS_DENIED'
+      ? '로그인 동의가 취소됐습니다.'
+      : '소셜 로그인을 완료하지 못했습니다.'
+    frontendOAuthRedirect(response, { error: message }, [clearedCookie])
+  }
+}
+
 function matchesArea(place, area) {
   if (!area || ['서울', '서울시', '서울특별시', 'seoul'].includes(area.toLowerCase())) return true
   const query = area.toLowerCase()
   return [place.name, place.area, place.district].filter(Boolean).some((value) => value.toLowerCase().includes(query))
 }
 
-function findPlaces(url) {
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const radians = (value) => value * Math.PI / 180
+  const a = Math.sin(radians(lat2 - lat1) / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(radians(lng2 - lng1) / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function kakaoPlaceToPlace(item, category, origin) {
+  const lat = Number(item.y); const lng = Number(item.x)
+  const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
+  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: [], groupFit: ['friends', 'couple', 'family', 'alone'], indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
+}
+
+async function searchKakaoPlaces(url, category, keyword, limit, origin) {
+  if (!kakaoRestApiKey) return null
+  const endpoint = keyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
+  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(origin.lng), y: String(origin.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 20000), 20000)), ...(keyword ? { query: keyword } : { category_group_code: kakaoCategoryCodes[category || 'tour'] }) })
+  const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
+  if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
+  const payload = await response.json()
+  const data = (payload.documents || []).map((item) => kakaoPlaceToPlace(item, category || 'tour', origin)).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
+  return { data, meta: { total: data.length, area: '서울', category: category || 'all', source: 'kakao' } }
+}
+
+async function findPlaces(url) {
   const area = url.searchParams.get('area')?.trim() ?? ''
   const category = url.searchParams.get('category')?.trim() ?? ''
   const keyword = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
@@ -36,12 +138,20 @@ function findPlaces(url) {
     return { error: 'category must be food, cafe, tour, lodging, or activity' }
   }
 
+  const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
+  if (kakaoRestApiKey && (category || keyword)) {
+    try {
+      const live = await searchKakaoPlaces(url, category, keyword, limit, origin)
+      if (live) return live
+    } catch (error) { console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR') }
+  }
+
   const data = places.filter((place) => {
     const text = [place.name, place.area, place.district, place.category].filter(Boolean).join(' ').toLowerCase()
     return matchesArea(place, area) && (!category || place.category === category) && (!keyword || text.includes(keyword))
   }).slice(0, limit)
 
-  return { data, meta: { total: data.length, area: area || '서울', category: category || 'all' } }
+  return { data: data.map((place) => ({ ...place, distanceKm: Number(haversineKm(origin.lat, origin.lng, place.lat, place.lng).toFixed(2)) })).sort((a, b) => a.distanceKm - b.distanceKm), meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'catalog' } }
 }
 
 async function readJsonBody(request) {
@@ -75,6 +185,8 @@ createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost:3001')
   if (request.method === 'OPTIONS') return sendJson(response, 204, {})
   if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { ok: true, database: 'postgresql', siteId })
+  if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google') return startGoogleOAuth(request, response)
+  if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google/callback') return completeGoogleOAuth(request, response, url)
   if (request.method === 'GET' && url.pathname === '/api/auth/users') return sendJson(response, 200, { data: await listUsers() })
   if (request.method === 'POST' && url.pathname === '/api/auth/signup') {
     try {
@@ -89,7 +201,7 @@ createServer(async (request, response) => {
     }
   }
   if (request.method === 'GET' && url.pathname === '/api/places') {
-    const result = findPlaces(url)
+    const result = await findPlaces(url)
     return 'error' in result ? sendJson(response, 400, result) : sendJson(response, 200, result)
   }
   return sendJson(response, 404, { error: 'Not found' })
