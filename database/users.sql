@@ -3,9 +3,13 @@ SELECT
   id,
   username,
   name,
+  email,
   source_site,
   provider,
-  created_at
+  provider_user_id,
+  profile_image,
+  created_at,
+  last_login_at
 FROM public.users
 ORDER BY created_at DESC;
 

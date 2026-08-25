@@ -33,6 +33,7 @@ function toUser(row) {
     profileImage: row.profile_image,
     sourceSite: row.source_site,
     createdAt: toIsoString(row.created_at),
+    lastLoginAt: row.last_login_at ? toIsoString(row.last_login_at) : null,
   }
 }
 
@@ -52,12 +53,14 @@ export async function initializeDatabase() {
       provider TEXT NOT NULL DEFAULT 'password',
       profile_image TEXT NOT NULL DEFAULT '',
       source_site TEXT NOT NULL DEFAULT 'legacy',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_login_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS source_site TEXT NOT NULL DEFAULT 'legacy'`)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id TEXT`)
+  await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
   await database.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`)
   await database.query(`ALTER TABLE users ALTER COLUMN password_salt DROP NOT NULL`)
   await database.query(`
@@ -111,8 +114,9 @@ export async function upsertGoogleUser({ providerUserId, name, email, profileIma
      DO UPDATE SET
        name = EXCLUDED.name,
        email = EXCLUDED.email,
-       profile_image = EXCLUDED.profile_image
-     RETURNING id, username, name, email, provider, profile_image, source_site, created_at`,
+       profile_image = EXCLUDED.profile_image,
+       last_login_at = NOW()
+     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
     [
       randomUUID(),
       username,
@@ -129,7 +133,7 @@ export async function upsertGoogleUser({ providerUserId, name, email, profileIma
 
 export async function listUsers() {
   const result = await database.query(
-    `SELECT id, name, username, provider, profile_image, source_site, created_at
+    `SELECT id, name, username, email, provider, provider_user_id, profile_image, source_site, created_at, last_login_at
      FROM users
      ORDER BY created_at DESC`,
   )
