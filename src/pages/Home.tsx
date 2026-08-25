@@ -45,16 +45,21 @@ export default function Home() {
   useEffect(() => {
     const stepper = document.querySelector('.stepper')?.parentElement
     if (!stepper) return
-    if (request.companion !== 'couple' && partyNotice) return setPartyNotice('')
-    if (partyNotice) setError('')
     const existing = stepper.querySelector('.party-notice')
+    if (request.companion !== 'couple') {
+      if (partyNotice) setPartyNotice('')
+      setError('')
+      existing?.remove()
+      return
+    }
+    if (partyNotice) setError('')
     if (partyNotice) {
       const notice = existing ?? document.createElement('p')
       notice.className = 'field-hint party-notice'
       notice.textContent = partyNotice
       if (!existing) stepper.appendChild(notice)
     } else if (existing) existing.remove()
-  }, [partyNotice])
+  }, [partyNotice, request.companion])
   useEffect(() => {
     const plusButton = document.querySelector('.stepper button:last-child')
     if (!plusButton) return
