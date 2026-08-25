@@ -225,6 +225,8 @@ input[type="date"] { color: #626a65; }
 .ai-insight strong { font-size: 12px; }
 .ai-insight p { margin: 4px 0 0; color: #799486; font-size: 11px; line-height: 1.5; }
 .place-list { display: grid; gap: 15px; }
+.place-list:empty { display: none; }
+.empty-recommendations { display: grid; justify-items: center; gap: 9px; padding: 28px 20px; border: 1px dashed #dce6de; border-radius: 14px; color: #879188; font-size: 12px; }
 .place-card { overflow: hidden; border: 1px solid #e7ebe5; border-radius: 17px; background: #fff; }
 .place-image { position: relative; height: 158px; overflow: hidden; }
 .place-image:after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(17, 25, 27, .32), transparent 55%); pointer-events: none; }
@@ -233,6 +235,7 @@ input[type="date"] { color: #626a65; }
 .place-number { top: 12px; left: 12px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: #fff; font: 12px 'DM Mono', monospace; }
 .place-category { display: flex; align-items: center; gap: 5px; bottom: 12px; left: 13px; color: #fff; font-size: 11px; font-weight: 700; }
 .save-button { display: grid; place-items: center; top: 11px; right: 12px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); color: #747c74; }
+.save-button.saved { color: #e5525a; background: #fff0f1; }
 .place-body { padding: 20px 20px 17px; }
 .place-title-row { display: flex; justify-content: space-between; gap: 12px; }
 .place-area { color: var(--green); font: 10px 'DM Mono', monospace; }
@@ -291,6 +294,7 @@ input[type="date"] { color: #626a65; }
 .legend-dot { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--green); }
 .legend-line { display: inline-block; width: 16px; height: 2px; margin: 0 4px 3px; border-top: 2px dashed var(--green); }
 .side-tip { display: flex; gap: 12px; margin-top: 14px; padding: 16px; border: 1px solid #e5eae4; border-radius: 14px; background: #fff; }
+.ai-insight, .map-label, .side-tip { display: none; }
 .side-tip > svg { flex: 0 0 auto; color: var(--yellow); }
 .side-tip strong { font-size: 12px; }
 .side-tip p { margin: 5px 0 0; color: #959d95; font-size: 10px; line-height: 1.7; }

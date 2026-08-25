@@ -4,7 +4,7 @@ import Icon, { type IconName } from './Icon'
 const labels: Record<string, string> = { tour: '명소', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티', lodging: '숙소' }
 const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
 
-export default function PlaceCard({ index, scored, onRemove }: { index: number; scored: ScoredPlace; onRemove: (id: string) => void }) {
+export default function PlaceCard({ index, scored, onRemove, saved, onSave }: { index: number; scored: ScoredPlace; onRemove: (id: string) => void; saved: boolean; onSave: (id: string) => void }) {
   const { place } = scored
   const cost = place.category === 'lodging' && place.lodging ? Math.round(place.lodging.pricePerNight / place.lodging.capacity) : place.price
   return (
@@ -12,7 +12,7 @@ export default function PlaceCard({ index, scored, onRemove }: { index: number; 
       <div className="place-image" style={{ background: 'linear-gradient(135deg, ' + place.accent + ', #202638)' }}>
         <img src={place.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} />
         <span className="place-number">{index}</span><span className="place-category"><Icon name={icons[place.category]} size={14} /> {labels[place.category]}</span>
-        <button type="button" className="save-button" aria-label="저장"><Icon name="heart" size={16} /></button>
+        <button type="button" className={'save-button' + (saved ? ' saved' : '')} aria-label={saved ? '찜 취소' : '찜하기'} aria-pressed={saved} onClick={() => onSave(place.id)}><Icon name="heart" size={16} fill={saved ? 'currentColor' : 'none'} /></button>
       </div>
       <div className="place-body">
         <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div><div className="score-badge"><strong>{scored.score}</strong><small>추천점수</small></div></div>

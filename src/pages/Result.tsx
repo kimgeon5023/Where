@@ -9,7 +9,6 @@ import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
 import AuthActions from '../components/AuthActions'
-import WeatherWidget from '../components/WeatherWidget'
 
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
 const weatherLabels: Record<TripRequest['weather'], { icon: IconName; label: string; temp: string; rain: string }> = { sunny: { icon: 'sun', label: '맑음', temp: '27°', rain: '강수확률 10%' }, cloudy: { icon: 'cloud', label: '구름 조금', temp: '25°', rain: '강수확률 20%' }, rain: { icon: 'rain', label: '비', temp: '22°', rain: '강수확률 70%' } }
@@ -46,6 +45,17 @@ export default function Result() {
   const [apiPlaces, setApiPlaces] = useState(places)
   const [apiError, setApiError] = useState('')
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [savedIds, setSavedIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('where-saved-places') || '[]') as string[]
+    } catch {
+      return []
+    }
+  })
+
+  useEffect(() => {
+    localStorage.setItem('where-saved-places', JSON.stringify(savedIds))
+  }, [savedIds])
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -91,6 +101,18 @@ export default function Result() {
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
+  function toggleSaved(id: string) {
+    setSavedIds((current) => current.includes(id) ? current.filter((savedId) => savedId !== id) : [...current, id])
+  }
+
+  function removePlace(id: string) {
+    const nextExcluded = [...excluded, id]
+    setExcluded(nextExcluded)
+    if (recommended.length > 0 && recommended.every((item) => nextExcluded.includes(item.place.id))) {
+      window.setTimeout(() => window.location.reload(), 150)
+    }
+  }
+
   if (!req) {
     return <Home />
   }
@@ -99,11 +121,11 @@ export default function Result() {
     <main className="app-shell result-shell">
       <header className="topbar result-topbar">
         <Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link>
-        <div className="result-top-actions"><span className="saved-count">♡ 저장한 코스 0</span><Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link><AuthActions /></div>
+        <div className="result-top-actions"><span className="saved-count">♡ 저장한 코스 {savedIds.length}</span><Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link><AuthActions /></div>
       </header>
       <section className="result-intro">
-        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
-        <div className="result-weather-live"><WeatherWidget compact /><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
+        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1>{req.start}에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
+        <div className="result-weather-live"><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
@@ -119,7 +141,8 @@ export default function Result() {
           </div>
           <div className="section-heading place-heading"><div><span className="step-label">AI PICKS</span><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>취향과 지도를 함께 분석했어요</strong><p>{req.start} 주변의 맛집·카페·숙소를 이동 거리와 평점까지 고려해 골랐어요.</p></div></div>
-          <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onRemove={(id) => setExcluded((current) => [...current, id])} />)}</div>
+          <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} saved={savedIds.includes(item.place.id)} onSave={toggleSaved} onRemove={removePlace} />)}</div>
+          {recommended.length === 0 && <div className="empty-recommendations"><p>더 이상 추천할 장소가 없어요.</p><button type="button" className="outline-button" onClick={() => window.location.reload()}>새로고침</button></div>}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
         <aside className="map-column"><div className="map-card"><div className="map-label"><span>AI MAP</span><strong>추천 장소와 이동 경로</strong></div><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 예상 이동 경로</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>AI가 지도에서 골랐어요</strong><p>취향·평점·예산·날씨와 현재 코스 주변 거리를 함께 반영했어요.</p></div></div></aside>
