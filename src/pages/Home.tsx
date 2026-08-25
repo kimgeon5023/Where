@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
+import { getSavedPlaces } from '../lib/savedPlaces'
 import type { Companion, Tag, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
@@ -37,6 +38,7 @@ export default function Home() {
   const [error, setError] = useState('')
   const [coupleNotice, setCoupleNotice] = useState(false)
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
+  const [savedCount] = useState(() => getSavedPlaces().length)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const toggle = (key: 'likes' | 'dislikes', value: Tag) => setRequest((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((tag) => tag !== value) : [...current[key], value] }))
   useEffect(() => {
@@ -49,7 +51,7 @@ export default function Home() {
   }
   return (
     <main className="app-shell home-shell">
-      <header className="topbar"><div className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></div><div className="topbar-actions"><div className="topbar-note"><span className="live-dot" /> 서울 곳곳의 오늘</div><AuthActions /></div></header>
+      <header className="topbar"><div className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></div><div className="topbar-actions"><div className="topbar-note"><span className="live-dot" /> 서울 곳곳의 오늘</div><Link to="/saved" className="saved-count">♡ 저장한 코스 {savedCount}</Link><AuthActions /></div></header>
       <section className="hero-copy"><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1>오늘은<br /><em>어디갈까?</em></h1><p>함께하는 사람, 예산, 취향만 알려주세요.<br />지금 딱 맞는 서울 하루를 만들어드릴게요.</p></section>
       <section className="form-card">
         <div className="form-card-head"><div><span className="step-label">STEP 01</span><h2>여행 조건을 알려주세요</h2></div><span className="form-card-count">1 / 2</span></div>
