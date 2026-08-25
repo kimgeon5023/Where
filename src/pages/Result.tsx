@@ -4,6 +4,7 @@ import Home from './Home'
 import { places } from '../data/places'
 import { searchPlaces } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend } from '../lib/scoring'
+import { getSavedPlaces, toggleSavedPlace } from '../lib/savedPlaces'
 import type { Category, Place, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
@@ -46,6 +47,7 @@ export default function Result() {
   const [apiPlaces, setApiPlaces] = useState(places)
   const [apiError, setApiError] = useState('')
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces)
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -99,7 +101,7 @@ export default function Result() {
     <main className="app-shell result-shell">
       <header className="topbar result-topbar">
         <Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link>
-        <div className="result-top-actions"><span className="saved-count">♡ 저장한 코스 0</span><Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link><AuthActions /></div>
+        <div className="result-top-actions"><Link to="/saved" className="saved-count">♡ 저장한 코스 {savedPlaces.length}</Link><Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link><AuthActions /></div>
       </header>
       <section className="result-intro">
         <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
@@ -119,7 +121,7 @@ export default function Result() {
           </div>
           <div className="section-heading place-heading"><div><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>취향과 지도를 함께 분석했어요</strong><p>{req.start} 주변의 맛집·카페·숙소를 이동 거리와 평점까지 고려해 골랐어요.</p></div></div>
-          <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onRemove={(id) => setExcluded((current) => [...current, id])} />)}</div>
+          <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={savedPlaces.some((place) => place.id === item.place.id)} onToggleSaved={() => setSavedPlaces((current) => toggleSavedPlace(current, item.place))} />)}</div>
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
         <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 예상 이동 경로</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>AI가 지도에서 골랐어요</strong><p>취향·평점·예산·날씨와 현재 코스 주변 거리를 함께 반영했어요.</p></div></div></aside>

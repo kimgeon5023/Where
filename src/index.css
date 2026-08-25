@@ -233,6 +233,9 @@ input[type="date"] { color: #626a65; }
 .place-number { top: 12px; left: 12px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--ink); color: #fff; font: 12px 'DM Mono', monospace; }
 .place-category { display: flex; align-items: center; gap: 5px; bottom: 12px; left: 13px; color: #fff; font-size: 11px; font-weight: 700; }
 .save-button { display: grid; place-items: center; top: 11px; right: 12px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255,255,255,.9); color: #747c74; }
+.save-button.saved { color: #e25555; background: #fff1f1; }
+.save-button.saved svg { fill: currentColor; }
+.saved-empty { padding: 54px 20px; border: 1px dashed #d7ded6; border-radius: 16px; text-align: center; color: #798279; }
 .place-body { padding: 20px 20px 17px; }
 .place-title-row { display: flex; justify-content: space-between; gap: 12px; }
 .place-area { color: var(--green); font: 10px 'DM Mono', monospace; }
