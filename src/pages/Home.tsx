@@ -58,7 +58,7 @@ export default function Home() {
       const notice = existing ?? document.createElement('p')
       notice.className = 'field-hint party-notice'
       notice.textContent = partyNotice
-      if (!existing) stepper.appendChild(notice)
+      if (!existing) stepper?.appendChild(notice)
     } else if (existing) existing.remove()
   }, [partyNotice, request.companion])
   useEffect(() => {
