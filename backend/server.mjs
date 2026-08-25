@@ -26,6 +26,15 @@ const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configured
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
 const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY?.trim() || ''
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
+const companionCategories = { friends: ['activity', 'food', 'photo'], couple: ['cafe', 'tour', 'photo'], family: ['tour', 'activity', 'food'], alone: ['cafe', 'photo', 'tour'] }
+const livePlaceMeta = {
+  food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
+  cafe: { tags: ['cafe', 'rest'], groupFit: ['friends', 'couple', 'alone'] },
+  tour: { tags: ['nature', 'photo', 'rest'], groupFit: ['friends', 'couple', 'family', 'alone'] },
+  photo: { tags: ['photo'], groupFit: ['friends', 'couple', 'alone'] },
+  activity: { tags: ['activity', 'shopping'], groupFit: ['friends', 'couple', 'family'] },
+  lodging: { tags: ['rest'], groupFit: ['friends', 'couple', 'family', 'alone'] },
+}
 const seoulDistrictCenters = {
   강남구: [37.5172, 127.0473], 강동구: [37.5301, 127.1238], 강북구: [37.6396, 127.0257], 강서구: [37.5509, 126.8495], 관악구: [37.4784, 126.9516], 광진구: [37.5385, 127.0823], 구로구: [37.4954, 126.8874], 금천구: [37.4569, 126.8955], 노원구: [37.6542, 127.0568], 도봉구: [37.6688, 127.0471], 동대문구: [37.5744, 127.0396], 동작구: [37.5124, 126.9393], 마포구: [37.5663, 126.9019], 서대문구: [37.5791, 126.9368], 서초구: [37.4837, 127.0324], 성동구: [37.5633, 127.0371], 성북구: [37.5894, 127.0167], 송파구: [37.5145, 127.1059], 양천구: [37.5170, 126.8664], 영등포구: [37.5264, 126.8962], 용산구: [37.5326, 126.9906], 은평구: [37.6027, 126.9291], 종로구: [37.5735, 126.9788], 중구: [37.5641, 126.9979], 중랑구: [37.6063, 127.0927],
 }
@@ -129,30 +138,34 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 function kakaoPlaceToPlace(item, category, origin) {
   const lat = Number(item.y); const lng = Number(item.x)
   const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
-  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: [], groupFit: ['friends', 'couple', 'family', 'alone'], indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
+  const metadata = livePlaceMeta[category] || livePlaceMeta.tour
+  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
 }
 
-async function searchKakaoPlaces(url, category, keyword, area, limit, origin) {
+async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin) {
   if (!kakaoRestApiKey) return null
   const selectedDistrict = /구$/.test(area)
   const searchKeyword = keyword
   const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
   const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
-  const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-  const params = new URLSearchParams({ size: String(Math.min(limit, 15)), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[category || 'activity'] }) })
-  const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
-  if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
-  const payload = await response.json()
-  const documents = selectedDistrict
-    ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area))
-    : (payload.documents || [])
-  const data = documents.map((item) => kakaoPlaceToPlace(item, category || 'activity', origin)).sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
+  const categories = category ? [category] : (Array.isArray(companionCategories[companion]) ? companionCategories[companion] : ['activity'])
+  const responses = await Promise.all(categories.map(async (placeCategory) => {
+    const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
+    const params = new URLSearchParams({ size: '15', page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
+    const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
+    if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
+    const payload = await response.json()
+    const documents = selectedDistrict ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area)) : (payload.documents || [])
+    return documents.map((item) => kakaoPlaceToPlace(item, placeCategory, origin))
+  }))
+  const data = [...new Map(responses.flat().map((place) => [place.id, place])).values()].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
   return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao' } }
 }
 
 async function findPlaces(url) {
   const area = url.searchParams.get('area')?.trim() ?? ''
   const category = url.searchParams.get('category')?.trim() ?? ''
+  const companion = url.searchParams.get('companion')?.trim() ?? ''
   const keyword = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
   const requestedLimit = Number(url.searchParams.get('limit') ?? 60)
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 100)) : 60
@@ -164,7 +177,7 @@ async function findPlaces(url) {
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
   if (kakaoRestApiKey && (category || keyword || /구$/.test(area))) {
     try {
-      const live = await searchKakaoPlaces(url, category, keyword, area, limit, origin)
+      const live = await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin)
       if (live) return live
     } catch (error) { console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR') }
   }

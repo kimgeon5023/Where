@@ -1,7 +1,7 @@
-import type { Category, Place } from '../types'
+import type { Category, Companion, Place } from '../types'
 import { apiUrl } from './api'
 
-export type PlaceSearchParams = { area?: string; category?: Category; q?: string; limit?: number; lat?: number; lng?: number; radius?: number }
+export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; limit?: number; lat?: number; lng?: number; radius?: number }
 export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string } }
 
 export async function searchPlaces(params: PlaceSearchParams, signal?: AbortSignal): Promise<PlacesResponse> {

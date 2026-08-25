@@ -57,7 +57,7 @@ export default function Result() {
     if (!req) return
     const controller = new AbortController()
     setApiError('')
-    searchPlaces({ area: req.start, category, limit: 100, ...userLocation }, controller.signal)
+    searchPlaces({ area: req.start, category, companion: req.companion, limit: 100, ...userLocation }, controller.signal)
       .then(({ data }) => {
         const areaPlaces = data.filter((place) => matchesSelectedArea(place, req.start))
         setApiPlaces(areaPlaces)
