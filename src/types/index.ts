@@ -23,6 +23,7 @@ export interface Place {
   category: Category
   lat: number
   lng: number
+  distanceKm?: number
   tags: Tag[]
   groupFit: Companion[]
   indoor: boolean
