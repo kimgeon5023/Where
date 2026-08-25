@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { eunpyeongPlaces } from './eunpyeongPlaces.mjs'
-import { createPasswordUser, initializeDatabase, listUsers, siteId, upsertGoogleUser } from './database.mjs'
+import { addFriend, createPasswordUser, createRelationshipRequest, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const existingPlaces = JSON.parse(await readFile(new URL('../src/data/places.json', import.meta.url), 'utf8'))
@@ -247,6 +247,44 @@ createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google') return startGoogleOAuth(request, response)
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google/callback') return completeGoogleOAuth(request, response, url)
   if (request.method === 'GET' && url.pathname === '/api/auth/users') return sendJson(response, 200, { data: await listUsers() })
+  if (request.method === 'GET' && url.pathname === '/api/social/users') {
+    const userId = url.searchParams.get('userId')
+    if (!userId) return sendJson(response, 400, { error: 'userId is required' })
+    return sendJson(response, 200, { data: await listOtherUsers(userId) })
+  }
+  if (request.method === 'GET' && url.pathname === '/api/social/friends') {
+    const userId = url.searchParams.get('userId')
+    if (!userId) return sendJson(response, 400, { error: 'userId is required' })
+    return sendJson(response, 200, { data: await listFriends(userId) })
+  }
+  if (request.method === 'GET' && url.pathname === '/api/social/notifications') {
+    const userId = url.searchParams.get('userId')
+    if (!userId) return sendJson(response, 400, { error: 'userId is required' })
+    return sendJson(response, 200, { data: await listNotifications(userId) })
+  }
+  if (request.method === 'POST' && url.pathname === '/api/social/friends') {
+    try {
+      const { userId, friendId } = await readJsonBody(request)
+      if (typeof userId !== 'string' || typeof friendId !== 'string') return sendJson(response, 400, { error: 'userId and friendId are required' })
+      await addFriend(userId, friendId)
+      return sendJson(response, 201, { ok: true })
+    } catch (error) { return sendJson(response, 400, { error: error instanceof Error ? error.message : 'FRIEND_ADD_FAILED' }) }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/social/relationship-requests') {
+    try {
+      const { userId, recipientId, relationshipType } = await readJsonBody(request)
+      if (typeof userId !== 'string' || typeof recipientId !== 'string' || !['friend', 'couple', 'family'].includes(relationshipType)) return sendJson(response, 400, { error: 'invalid relationship request' })
+      return sendJson(response, 201, { data: await createRelationshipRequest(userId, recipientId, relationshipType) })
+    } catch (error) { return sendJson(response, 400, { error: error instanceof Error ? error.message : 'RELATIONSHIP_REQUEST_FAILED' }) }
+  }
+  if (request.method === 'POST' && /^\/api\/social\/notifications\/[^/]+\/respond$/.test(url.pathname)) {
+    try {
+      const requestId = url.pathname.split('/')[4]
+      const { userId, accepted } = await readJsonBody(request)
+      if (typeof userId !== 'string' || typeof accepted !== 'boolean') return sendJson(response, 400, { error: 'invalid notification response' })
+      return sendJson(response, 200, { data: await respondToRelationshipRequest(userId, requestId, accepted) })
+    } catch (error) { return sendJson(response, 400, { error: error instanceof Error ? error.message : 'NOTIFICATION_RESPONSE_FAILED' }) }
+  }
   if (request.method === 'POST' && url.pathname === '/api/auth/signup') {
     try {
       const validation = validateSignup(await readJsonBody(request))
