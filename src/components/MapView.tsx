@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
 import type { Place } from '../types'
 
 type Location = { lat: number; lng: number }
-type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void }
 type KakaoLatLng = object
-type KakaoMarker = { setMap: (map: KakaoMap | null) => void; setPosition: (position: KakaoLatLng) => void }
+type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void }
+type KakaoMapObject = { setMap: (map: KakaoMap | null) => void; setPosition: (position: KakaoLatLng) => void }
+type KakaoMarker = KakaoMapObject
 type KakaoInfoWindow = { open: (map: KakaoMap, marker: KakaoMarker) => void; close: () => void }
 type KakaoPolyline = { setMap: (map: KakaoMap | null) => void }
-type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (element: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap; LatLng: new (lat: number, lng: number) => KakaoLatLng; Marker: new (options: { map: KakaoMap; position: KakaoLatLng; title?: string }) => KakaoMarker; InfoWindow: new (options: { content: string; removable?: boolean }) => KakaoInfoWindow; Polyline: new (options: { map: KakaoMap; path: KakaoLatLng[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => KakaoPolyline; event: { addListener: (target: KakaoMarker, type: string, handler: () => void) => void } } }
+type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (element: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap; LatLng: new (lat: number, lng: number) => KakaoLatLng; Marker: new (options: { map: KakaoMap; position: KakaoLatLng; title?: string }) => KakaoMarker; CustomOverlay: new (options: { map: KakaoMap; position: KakaoLatLng; content: HTMLElement; yAnchor: number }) => KakaoMapObject; InfoWindow: new (options: { content: string; removable?: boolean }) => KakaoInfoWindow; Polyline: new (options: { map: KakaoMap; path: KakaoLatLng[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => KakaoPolyline; event: { addListener: (target: KakaoMarker, type: string, handler: () => void) => void } } }
 declare global { interface Window { kakao?: KakaoNamespace } }
 
 const scriptId = 'kakao-map-sdk'
@@ -28,11 +30,27 @@ function loadKakao(): Promise<KakaoNamespace> {
   })
 }
 
+function createProfileOverlay(kakao: KakaoNamespace, map: KakaoMap, position: KakaoLatLng, profileImage: string, name: string) {
+  const content = document.createElement('div')
+  content.className = 'map-profile-location'
+  if (profileImage) {
+    const image = document.createElement('img')
+    image.src = profileImage
+    image.alt = `${name}의 현재 위치`
+    content.appendChild(image)
+  } else {
+    content.setAttribute('aria-label', '내 현재 위치')
+    content.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>'
+  }
+  return new kakao.maps.CustomOverlay({ map, position, content, yAnchor: 1 })
+}
+
 export default function MapView({ places, center, routePlaces = places, userLocation }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; userLocation?: Location | null }) {
+  const { user } = useAuth()
   const elementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<KakaoMap | null>(null)
   const kakaoRef = useRef<KakaoNamespace | null>(null)
-  const userMarkerRef = useRef<KakaoMarker | null>(null)
+  const userMarkerRef = useRef<KakaoMapObject | null>(null)
   const [gpsLocation, setGpsLocation] = useState<Location | null>(null)
   const [status, setStatus] = useState(userLocation ? '내 위치 중심으로 표시 중' : 'GPS 위치를 확인하는 중…')
   const activeLocation = userLocation ?? gpsLocation
@@ -50,11 +68,11 @@ export default function MapView({ places, center, routePlaces = places, userLoca
   useEffect(() => {
     if (!activeLocation || !mapRef.current || !kakaoRef.current) return
     const point = new kakaoRef.current.maps.LatLng(activeLocation.lat, activeLocation.lng)
-    if (!userMarkerRef.current) userMarkerRef.current = new kakaoRef.current.maps.Marker({ map: mapRef.current, position: point, title: '내 위치' })
+    if (!userMarkerRef.current) userMarkerRef.current = createProfileOverlay(kakaoRef.current, mapRef.current, point, user?.profileImage ?? '', user?.name ?? '나')
     else userMarkerRef.current.setPosition(point)
     mapRef.current.setCenter(point)
     setStatus('내 위치 중심으로 표시 중')
-  }, [activeLocation])
+  }, [activeLocation, user?.name, user?.profileImage])
 
   useEffect(() => {
     let cancelled = false
@@ -67,7 +85,7 @@ export default function MapView({ places, center, routePlaces = places, userLoca
       const initial = activeLocation ?? { lat: center[0], lng: center[1] }
       const map = new kakao.maps.Map(elementRef.current, { center: new kakao.maps.LatLng(initial.lat, initial.lng), level: activeLocation ? 5 : 7 })
       mapRef.current = map
-      if (activeLocation) userMarkerRef.current = new kakao.maps.Marker({ map, position: new kakao.maps.LatLng(activeLocation.lat, activeLocation.lng), title: '내 위치' })
+      if (activeLocation) userMarkerRef.current = createProfileOverlay(kakao, map, new kakao.maps.LatLng(activeLocation.lat, activeLocation.lng), user?.profileImage ?? '', user?.name ?? '나')
       markers = places.map((place, index) => {
         const marker = new kakao.maps.Marker({ map, position: new kakao.maps.LatLng(place.lat, place.lng), title: place.name })
         const price = place.price > 0 ? `${place.price.toLocaleString()}원` : '가격 미정'
@@ -89,7 +107,14 @@ export default function MapView({ places, center, routePlaces = places, userLoca
       userMarkerRef.current = null
       mapRef.current = null
     }
-  }, [center, places, routePlaces])
+  }, [center, places, routePlaces, user?.name, user?.profileImage])
 
-  return <div className="trip-map kakao-map-wrap"><div ref={elementRef} className="kakao-map-canvas" aria-label="카카오맵" /><span className="map-gps-status">{status}</span></div>
+  function returnToMyLocation() {
+    if (!activeLocation || !mapRef.current || !kakaoRef.current) return setStatus('GPS 위치를 확인하는 중입니다.')
+    mapRef.current.setCenter(new kakaoRef.current.maps.LatLng(activeLocation.lat, activeLocation.lng))
+    mapRef.current.setLevel(4)
+    setStatus('내 위치로 돌아왔습니다.')
+  }
+
+  return <div className="trip-map kakao-map-wrap"><div ref={elementRef} className="kakao-map-canvas" aria-label="카카오맵" /><button type="button" className="map-my-location-button" onClick={returnToMyLocation} aria-label="내 현재 위치로 돌아가기"><span aria-hidden="true">⌖</span> 내 위치</button><span className="map-gps-status">{status}</span></div>
 }
