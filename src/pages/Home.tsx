@@ -43,7 +43,17 @@ export default function Home() {
     if (request.companion === 'couple' && request.headcount !== 2) update('headcount', 2)
   }, [request.companion, request.headcount])
   useEffect(() => {
-    if (partyNotice) setError(partyNotice)
+    const stepper = document.querySelector('.stepper')?.parentElement
+    if (!stepper) return
+    if (request.companion !== 'couple' && partyNotice) return setPartyNotice('')
+    if (partyNotice) setError('')
+    const existing = stepper.querySelector('.party-notice')
+    if (partyNotice) {
+      const notice = existing ?? document.createElement('p')
+      notice.className = 'field-hint party-notice'
+      notice.textContent = partyNotice
+      if (!existing) stepper.appendChild(notice)
+    } else if (existing) existing.remove()
   }, [partyNotice])
   useEffect(() => {
     const plusButton = document.querySelector('.stepper button:last-child')
