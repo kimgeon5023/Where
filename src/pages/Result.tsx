@@ -105,7 +105,7 @@ export default function Result() {
       </header>
       <section className="result-intro">
         <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
-        <div className="result-weather-live"><WeatherWidget compact /><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
+        <div className="result-weather-live"><WeatherWidget compact /></div>
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
