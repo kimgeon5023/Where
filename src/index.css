@@ -86,6 +86,7 @@ a { color: inherit; text-decoration: none; }
 .hero-copy h1 em, .result-intro h1 em { color: var(--green); font-family: var(--serif); font-weight: 400; letter-spacing: -.08em; }
 .hero-copy p, .result-intro p { margin: 0; color: #858a86; line-height: 1.8; font-size: 15px; }
 .form-card { max-width: 760px; padding: 38px 42px 28px; background: #fff; border: 1px solid #edf0ea; border-radius: 28px; box-shadow: 0 22px 60px rgba(41, 56, 43, .06); }
+.field-hint { margin: 9px 0 0 25px; color: #8b958d; font-size: 11px; line-height: 1.5; }
 .form-card-head, .taste-heading, .section-heading, .budget-header, .route-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .form-card h2, .taste-heading h2, .section-heading h2, .budget-header h2 { margin: 7px 0 0; font-size: 20px; letter-spacing: -.06em; }
 .form-card-count { color: #afb5ad; font: 12px 'DM Mono', monospace; }
@@ -194,7 +195,7 @@ input[type="date"] { color: #626a65; }
 .section-heading { align-items: flex-end; margin-bottom: 20px; }
 .section-heading h2 { margin-top: 8px; font-size: 23px; }
 .result-count { color: #a4aba4; font-size: 11px; }
-.day-tabs { display: flex; gap: 7px; margin-bottom: 14px; }
+.day-tabs { display: flex; gap: 7px; margin-top: 22px; margin-bottom: 14px; }
 .day-tabs button { min-width: 100px; padding: 10px 14px; border: 1px solid #e2e6e0; border-radius: 10px; background: #fff; text-align: left; }
 .day-tabs button.selected { border-color: var(--green); background: var(--green); color: #fff; }
 .day-tabs span, .day-tabs small { display: block; }
@@ -269,6 +270,8 @@ input[type="date"] { color: #626a65; }
 .map-column { position: sticky; top: 24px; }
 .map-card { position: relative; height: 670px; overflow: hidden; border: 1px solid #dce6de; border-radius: 22px; background: #dae9dc; box-shadow: 0 15px 40px rgba(54, 84, 60, .1); }
 .trip-map { width: 100%; height: 100%; }
+.leaflet-map-wrap { position: relative; }
+.leaflet-map { width: 100%; height: 100%; z-index: 1; }
 .kakao-map-wrap { position: relative; }
 .kakao-map-canvas { width: 100%; height: 100%; }
 .map-gps-status { position: absolute; z-index: 2; right: 14px; bottom: 14px; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.92); color: #4c6658; font-size: 11px; box-shadow: 0 3px 12px rgba(32,37,52,.1); }

@@ -4,7 +4,7 @@ import Home from './Home'
 import { places } from '../data/places'
 import { searchPlaces } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend } from '../lib/scoring'
-import type { Category, TripRequest } from '../types'
+import type { Category, Place, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
@@ -30,6 +30,13 @@ function daysBetween(start: string, end: string) {
   return Math.max(1, Math.min(3, diff || 1))
 }
 
+function matchesSelectedArea(place: Place, area: string) {
+  const target = area.trim().toLowerCase()
+  if (!target || target === '서울' || target === '서울 전체') return true
+  const placeWithDistrict = place as Place & { district?: string }
+  return [place.area, placeWithDistrict.district].filter(Boolean).some((value) => value!.toLowerCase() === target)
+}
+
 export default function Result() {
   const location = useLocation()
   const req = location.state as TripRequest | null
@@ -52,13 +59,14 @@ export default function Result() {
     setApiError('')
     searchPlaces({ area: req.start, category, limit: 100, ...userLocation }, controller.signal)
       .then(({ data }) => {
-        if (data.length > 0) setApiPlaces(data)
-        else return searchPlaces({ category, limit: 100, ...userLocation }, controller.signal).then(({ data: all }) => setApiPlaces(all))
+        const areaPlaces = data.filter((place) => matchesSelectedArea(place, req.start))
+        setApiPlaces(areaPlaces)
+        if (areaPlaces.length === 0 && req.start !== '서울') setApiError(`${req.start}에 등록된 추천 장소가 아직 없어요.`)
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setApiError('장소 API에 연결하지 못해 기본 장소를 표시합니다.')
-        setApiPlaces(places)
+        setApiError(`${req.start} 장소 API에 연결하지 못해 해당 지역의 기본 장소를 표시합니다.`)
+        setApiPlaces(places.filter((place) => matchesSelectedArea(place, req.start)))
       })
     return () => controller.abort()
   }, [req, category, userLocation])
@@ -106,7 +114,7 @@ export default function Result() {
           </div>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
-            <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {day === 0 ? '성수와 서울숲' : '서울의 새로운 하루'}</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
+            <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
             <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className="timeline-item" key={stop.place.id}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
           </div>
           <div className="section-heading place-heading"><div><span className="step-label">AI PICKS</span><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
