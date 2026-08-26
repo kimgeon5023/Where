@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
-import { searchPlaces } from '../lib/placesApi'
+import { searchPlaces, searchRoute, type RouteResponse } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
 import { getSavedPlaces, toggleSavedPlace } from '../lib/savedPlaces'
 import type { Category, Place, TripRequest } from '../types'
@@ -88,7 +88,9 @@ export default function Result() {
   const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number } | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
-  const [routeStatus] = useState('실시간 차량 경로는 준비 중입니다.')
+  const [route, setRoute] = useState<RouteResponse['data'] | null>(null)
+  const [routeStatus, setRouteStatus] = useState('')
+  const [routeRevision, setRouteRevision] = useState(0)
   const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces)
   const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -162,6 +164,24 @@ export default function Result() {
     setViewport((current) => current && Math.abs(current.lat - next.lat) < 0.0002 && Math.abs(current.lng - next.lng) < 0.0002 && current.radius === next.radius ? current : next)
   }, [])
 
+  useEffect(() => {
+    if (!req || coursePlaces.length === 0) { setRoute(null); return }
+    if (req.transport !== 'car') {
+      setRoute(null)
+      setRouteStatus('대중교통 실시간 경로는 준비 중입니다. 장소 카드에서 카카오맵 길찾기를 이용해주세요.')
+      return
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setRouteStatus('실시간 차량 경로를 계산하는 중이에요.')
+      const origin = userLocation ?? viewport ?? { lat: coursePlaces[0].lat, lng: coursePlaces[0].lng }
+      searchRoute({ origin, stops: coursePlaces.slice(0, 5).map(({ lat, lng }) => ({ lat, lng })), transport: 'car' }, controller.signal)
+        .then(({ data }) => { setRoute(data); setRouteStatus('') })
+        .catch(() => { setRoute(null); setRouteStatus('실시간 차량 경로를 불러오지 못했어요.') })
+    }, 400)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [req, coursePlaces, userLocation, viewport, routeRevision])
+
   if (!req) {
     return <Navigate to="/" replace />
   }
@@ -197,7 +217,7 @@ export default function Result() {
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
-            <div className="route-summary"><span>{routeStatus}</span></div>
+            <div className="route-summary">{route ? <><strong>실시간 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 실시간 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
             <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
           </div>
           <div className="section-heading place-heading"><div><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
@@ -209,7 +229,7 @@ export default function Result() {
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 코스 연결선</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 이동과 검색어 입력은 잠시 멈춘 뒤 자동으로 반영됩니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 이동과 검색어 입력은 잠시 멈춘 뒤 자동으로 반영됩니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
