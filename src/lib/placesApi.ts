@@ -2,12 +2,43 @@ import type { Category, Companion, Place } from '../types'
 import { apiUrl } from './api'
 
 export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; limit?: number; lat?: number; lng?: number; radius?: number }
-export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string } }
+export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string; source?: string } }
+export type RouteResponse = { data: { coordinates: { lat: number; lng: number }[]; distanceMeters: number; durationSeconds: number } }
+export type RouteRequest = { origin: { lat: number; lng: number }; stops: { lat: number; lng: number }[]; transport: 'car' | 'public' }
+
+const cacheTtlMs = 3 * 60 * 1000
+const searchCache = new Map<string, { value: PlacesResponse; expiresAt: number }>()
+const routeCache = new Map<string, { value: RouteResponse; expiresAt: number }>()
+
+function cached<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string) {
+  const entry = cache.get(key)
+  if (!entry || entry.expiresAt <= Date.now()) { cache.delete(key); return null }
+  return entry.value
+}
+
+function remember<T>(cache: Map<string, { value: T; expiresAt: number }>, key: string, value: T) {
+  cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs })
+  return value
+}
 
 export async function searchPlaces(params: PlaceSearchParams, signal?: AbortSignal): Promise<PlacesResponse> {
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, String(value)) })
+  const key = query.toString()
+  const previous = cached(searchCache, key)
+  if (previous) return previous
   const response = await fetch(apiUrl(`/api/places?${query}`), { signal })
   if (!response.ok) throw new Error('장소 검색 API에 연결하지 못했습니다.')
-  return response.json() as Promise<PlacesResponse>
+  return remember(searchCache, key, await response.json() as PlacesResponse)
+}
+
+export async function searchRoute(params: RouteRequest, signal?: AbortSignal): Promise<RouteResponse> {
+  const key = JSON.stringify(params)
+  const previous = cached(routeCache, key)
+  if (previous) return previous
+  const response = await fetch(apiUrl('/api/route'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal,
+  })
+  if (!response.ok) throw new Error(await response.json().then((body) => body.error || '경로를 불러오지 못했습니다.').catch(() => '경로를 불러오지 못했습니다.'))
+  return remember(routeCache, key, await response.json() as RouteResponse)
 }
