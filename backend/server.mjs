@@ -26,7 +26,6 @@ const cacheTtlMs = 3 * 60 * 1000
 const placesCache = new Map()
 const routesCache = new Map()
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
-const companionCategories = { friends: ['activity', 'food', 'photo'], couple: ['cafe', 'tour', 'photo'], family: ['tour', 'activity', 'food'], alone: ['cafe', 'photo', 'tour'] }
 const livePlaceMeta = {
   food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
   cafe: { tags: ['cafe', 'rest'], groupFit: ['friends', 'couple', 'alone'] },
@@ -156,7 +155,9 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   const searchKeyword = keyword
   const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
   const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
-  const categories = category ? [category] : (Array.isArray(companionCategories[companion]) ? companionCategories[companion] : ['activity'])
+  // "전체"는 동행 유형으로 좁히지 않고, 모든 화면 카테고리를 함께 검색한다.
+  // 각 카카오 응답에 카테고리를 보존해야 지도 핀도 맛집·카페·관광지·숙소·액티비티 아이콘으로 구분된다.
+  const categories = category ? [category] : [...searchableCategories]
   const responses = await Promise.all(categories.map(async (placeCategory) => {
     const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
     const params = new URLSearchParams({ size: '15', page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
