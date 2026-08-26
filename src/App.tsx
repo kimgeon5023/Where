@@ -4,21 +4,26 @@ import Result from './pages/Result'
 import Settings from './pages/Settings'
 import Saved from './pages/Saved'
 import Friends from './pages/Friends'
+import NotFound from './pages/NotFound'
 import { AuthProvider } from './auth/AuthContext'
+import ErrorBoundary from './components/ErrorBoundary'
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/result" element={<Result />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/saved" element={<Saved />} />
-          <Route path="/friends" element={<Friends />} />
-        </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/result" element={<Result />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/saved" element={<Saved />} />
+            <Route path="/friends" element={<Friends />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 

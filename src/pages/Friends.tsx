@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AuthActions from '../components/AuthActions'
+import BottomNav from '../components/BottomNav'
 import { useAuth } from '../auth/AuthContext'
 import { addFriend, getFriends, getNotifications, getSocialUsers, requestRelationship, respondNotification, type Notification, type RelationshipType, type SocialUser } from '../lib/social'
 
@@ -22,7 +23,7 @@ export default function Friends() {
     } catch (error) { setNotice(error instanceof Error ? error.message : '목록을 불러오지 못했어요.') }
   }, [user])
   useEffect(() => { void load() }, [load])
-  if (!user) return <main className="app-shell settings-shell"><p className="saved-empty">친구 기능은 로그인 후 사용할 수 있어요.</p><Link to="/" className="back-button">메인으로</Link></main>
+  if (!user) return <main className="app-shell settings-shell"><p className="saved-empty">친구 기능은 로그인 후 사용할 수 있어요.</p><Link to="/" className="back-button">메인으로</Link><BottomNav /></main>
   const add = async (friendId: string) => { try { await addFriend(user.id, friendId); setNotice('친구가 추가되었습니다.'); await load() } catch (error) { setNotice(error instanceof Error ? error.message : '친구 추가에 실패했어요.') } }
   const register = async (friendId: string, relationshipType: RelationshipType) => { try { await requestRelationship(user.id, friendId, relationshipType); setNotice(`${relationLabel[relationshipType]} 등록 요청을 보냈습니다.`); await load() } catch (error) { setNotice(error instanceof Error ? error.message : '등록 요청에 실패했어요.') } }
   const respond = async (notification: Notification, accepted: boolean) => { try { await respondNotification(user.id, notification.id, accepted); setNotice(accepted ? '등록 되었습니다.' : '거절 되었습니다.'); await load(); if (!accepted) navigate('/') } catch (error) { setNotice(error instanceof Error ? error.message : '응답 처리에 실패했어요.') } }
