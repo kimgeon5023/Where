@@ -7,10 +7,10 @@ interface LoginModalProps {
   onClose: () => void
 }
 
-type ModalMode = 'social' | 'signup'
+type ModalMode = 'social' | 'signup' | 'login'
 
 export default function LoginModal({ open, onClose }: LoginModalProps) {
-  const { signIn, signUpWithPassword } = useAuth()
+  const { signIn, signUpWithPassword, logInWithPassword } = useAuth()
   const [mode, setMode] = useState<ModalMode>('social')
   const [name, setName] = useState('')
   const [username, setUsername] = useState('')
@@ -19,6 +19,10 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [socialLoading, setSocialLoading] = useState(false)
+
+  // 로그인용 상태
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
 
   if (!open) return null
 
@@ -42,6 +46,23 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
       onClose()
     } catch (signupError) {
       setError(signupError instanceof Error ? signupError.message : '회원가입을 처리하지 못했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submitLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const trimmedUsername = loginUsername.trim()
+    if (!trimmedUsername) return setError('아이디를 입력해 주세요.')
+    if (!loginPassword) return setError('비밀번호를 입력해 주세요.')
+
+    setLoading(true)
+    try {
+      await logInWithPassword({ username: trimmedUsername, password: loginPassword })
+      onClose()
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : '로그인에 실패했습니다.')
     } finally {
       setLoading(false)
     }
@@ -71,12 +92,27 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
         <button type="button" className="modal-close" aria-label="로그인 창 닫기" onClick={onClose}><Icon name="close" size={18} /></button>
         <span className="login-mark">W</span>
         <span className="eyebrow">WELCOME TO WHERE TO GO</span>
-        <h2 id="login-title">{mode === 'social' ? <>여행 취향을<br /><em>저장해볼까요?</em></> : <>어디갈까에<br /><em>가입해볼까요?</em></>}</h2>
+        <h2 id="login-title">{mode === 'social' ? <>여행 취향을<br /><em>저장해볼까요?</em></> : mode === 'login' ? <>기존 계정으로<br /><em>로그인해볼까요?</em></> : <>어디갈까에<br /><em>가입해볼까요?</em></>}</h2>
         {mode === 'social' ? <>
           <p>사용하는 계정으로<br />간편하게 로그인하세요.</p>
           {error && <p className="signup-error">{error}</p>}
           <div className="social-buttons">{googleButton}</div>
-          <button type="button" className="signup-switch" onClick={() => changeMode('signup')}>아이디로 회원가입하기 <span>→</span></button>
+          <div style={{ marginTop: 14 }}>
+            <button type="button" className="signup-switch" onClick={() => changeMode('login')}>아이디로 로그인하기 <span>→</span></button>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <button type="button" className="signup-switch" onClick={() => changeMode('signup')}>아이디로 회원가입하기 <span>→</span></button>
+          </div>
+        </> : mode === 'login' ? <>
+          <p>가입한 아이디와 비밀번호를<br />입력해 주세요.</p>
+          <form className="signup-form" onSubmit={(event) => void submitLogin(event)}>
+            <label><span>아이디</span><input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
+            <label><span>비밀번호</span><input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} placeholder="비밀번호 입력" autoComplete="current-password" /></label>
+            {error && <p className="signup-error">{error}</p>}
+            <button type="submit" className="primary-button signup-submit" disabled={loading}>{loading ? '로그인 중...' : '로그인'}</button>
+          </form>
+          <button type="button" className="signup-switch back-to-social" onClick={() => changeMode('social')}>← 소셜 로그인 화면으로</button>
+          <button type="button" className="signup-switch" onClick={() => changeMode('signup')}>계정이 없으신가요? 회원가입 <span>→</span></button>
         </> : <>
           <p>아이디와 비밀번호를 입력해<br />나만의 여행 프로필을 만들어 보세요.</p>
           <form className="signup-form" onSubmit={(event) => void submitSignup(event)}>
@@ -88,6 +124,9 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
             <button type="submit" className="primary-button signup-submit" disabled={loading}>{loading ? '가입 중...' : '회원가입 완료'}</button>
           </form>
           <button type="button" className="signup-switch back-to-social" onClick={() => changeMode('social')}>← 소셜 로그인 화면으로</button>
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="signup-switch" onClick={() => changeMode('login')}>이미 계정이 있으신가요? 로그인 <span>→</span></button>
+          </div>
         </>}
         {mode === 'social' && <small className="login-note">계정 정보는 Google 동의 화면을 통해서만 전달됩니다.</small>}
       </section>

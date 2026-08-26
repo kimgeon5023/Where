@@ -20,11 +20,17 @@ export interface PasswordSignupInput {
   name: string
 }
 
+export interface PasswordLoginInput {
+  username: string
+  password: string
+}
+
 interface AuthContextValue {
   user: User | null
   isLoggedIn: boolean
   signIn: (provider: SocialProvider) => Promise<void>
   signUpWithPassword: (input: PasswordSignupInput) => Promise<void>
+  logInWithPassword: (input: PasswordLoginInput) => Promise<void>
   signOut: () => void
   updateProfile: (patch: Pick<User, 'name' | 'profileImage'>) => void
 }
@@ -93,6 +99,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const body = await response.json() as { user?: User; error?: string }
       if (!response.ok || !body.user) throw new Error(body.error || '회원가입을 처리하지 못했습니다.')
+      const nextUser = body.user
+      setUser(nextUser)
+      saveUser(nextUser)
+      },
+    logInWithPassword: async ({ username, password }) => {
+      const response = await fetch(apiUrl('/api/auth/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+      const body = await response.json() as { user?: User; error?: string }
+      if (!response.ok || !body.user) throw new Error(body.error || '로그인에 실패했습니다.')
       const nextUser = body.user
       setUser(nextUser)
       saveUser(nextUser)
