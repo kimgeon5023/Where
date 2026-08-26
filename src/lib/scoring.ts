@@ -46,10 +46,11 @@ export function recommend(places: Place[], req: TripRequest, excludedIds: string
     .sort((a, b) => b.score - a.score)
 }
 
-export function estimateBudget(req: TripRequest, course: ScoredPlace[]) {
-  const transport = req.transport === 'car' ? 30000 : 6000
+export function estimateBudget(req: TripRequest, course: ScoredPlace[], days = 1) {
+  const nights = Math.max(0, days - 1)
+  const transport = (req.transport === 'car' ? 25000 : 6000) * days
   const lodging = course.find((item) => item.place.category === 'lodging')?.place.lodging
-  const lodgingCost = lodging ? Math.round(lodging.pricePerNight / Math.max(1, req.headcount)) : 0
+  const lodgingCost = lodging && nights > 0 ? Math.round((lodging.pricePerNight * nights) / Math.max(1, req.headcount)) : 0
   const food = course.filter((item) => item.place.category === 'food').reduce((sum, item) => sum + item.place.price, 0)
   const activity = course.filter((item) => !['food', 'lodging', 'cafe'].includes(item.place.category)).reduce((sum, item) => sum + item.place.price, 0)
   const cafe = course.filter((item) => item.place.category === 'cafe').reduce((sum, item) => sum + item.place.price, 0)

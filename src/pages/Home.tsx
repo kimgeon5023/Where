@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import type { Companion, Tag, TripRequest } from '../types'
+import { diffIsoDays, isoDate, shiftIsoDate } from '../lib/date'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
   { value: 'friends', label: '친구', icon: 'friends', caption: '활기차게' },
@@ -21,9 +22,14 @@ const dislikes: { value: Tag; label: string; icon: IconName }[] = [
   { value: 'pub', label: '술집', icon: 'pub' }, { value: 'sashimi', label: '회', icon: 'fish' },
 ]
 const initialRequest: TripRequest = {
-  start: '서울', dateStart: '2026-08-22', dateEnd: '2026-08-23', companion: 'friends', headcount: 3,
+  start: '서울', dateStart: isoDate(0), dateEnd: isoDate(1), companion: 'friends', headcount: 3,
   budgetPerPerson: 50000, transport: 'public', likes: ['cafe', 'foodie', 'photo', 'activity'], dislikes: ['crowded'], weather: 'sunny',
 }
+const stayOptions = [
+  { nights: 0, label: '당일치기' },
+  { nights: 1, label: '1박 2일' },
+  { nights: 2, label: '2박 3일' },
+]
 const seoulDistricts = ['서울 전체', '강남구', '강동구', '강북구', '강서구', '관악구', '광진구', '구로구', '금천구', '노원구', '도봉구', '동대문구', '동작구', '마포구', '서대문구', '서초구', '성동구', '성북구', '송파구', '양천구', '영등포구', '용산구', '은평구', '종로구', '중구', '중랑구']
 
 function ToggleChip({ label, icon, active, danger, onClick }: { label: string; icon: IconName; active: boolean; danger?: boolean; onClick: () => void }) {
@@ -39,40 +45,16 @@ export default function Home() {
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const toggle = (key: 'likes' | 'dislikes', value: Tag) => setRequest((current) => ({ ...current, [key]: current[key].includes(value) ? current[key].filter((tag) => tag !== value) : [...current[key], value] }))
-  useEffect(() => {
-    if (request.companion === 'couple' && request.headcount !== 2) update('headcount', 2)
-  }, [request.companion, request.headcount])
-  useEffect(() => {
-    const stepper = document.querySelector('.stepper')?.parentElement
-    if (!stepper) return
-    const existing = stepper.querySelector('.party-notice')
-    if (request.companion !== 'couple') {
-      if (partyNotice) setPartyNotice('')
-      setError('')
-      existing?.remove()
-      return
-    }
-    if (partyNotice) setError('')
-    if (partyNotice) {
-      const notice = existing ?? document.createElement('p')
-      notice.className = 'field-hint party-notice'
-      notice.textContent = partyNotice
-      if (!existing) stepper.appendChild(notice)
-    } else if (existing) existing.remove()
-  }, [partyNotice, request.companion])
-  useEffect(() => {
-    const plusButton = document.querySelector('.stepper button:last-child')
-    if (!plusButton) return
-    const handleCoupleCount = (event: Event) => {
-      if (request.companion !== 'couple') return
-      event.preventDefault()
-      event.stopPropagation()
-      setPartyNotice('바람 피는 행동은 나빠요')
-      setError('바람 피는 행동은 나빠요')
-    }
-    plusButton.addEventListener('click', handleCoupleCount, true)
-    return () => plusButton.removeEventListener('click', handleCoupleCount, true)
-  }, [request.companion])
+  const chooseCompanion = (value: Companion) => {
+    setPartyNotice('')
+    setRequest((current) => ({ ...current, companion: value, headcount: value === 'couple' ? 2 : current.headcount }))
+  }
+  const stayNights = Math.max(0, diffIsoDays(request.dateStart, request.dateEnd))
+  const chooseStay = (nights: number) => setRequest((current) => ({ ...current, dateEnd: shiftIsoDate(current.dateStart, nights) }))
+  const changeHeadcount = (delta: number) => {
+    if (request.companion === 'couple') { setPartyNotice('바람 피는 행동은 나빠요'); return }
+    update('headcount', Math.max(1, request.headcount + delta))
+  }
   const submit = () => {
     if (!request.dateStart || !request.dateEnd || request.dateEnd < request.dateStart) { setError('여행 날짜를 올바르게 선택해 주세요.'); return }
     setError(''); navigate('/result', { state: request })
@@ -84,9 +66,9 @@ export default function Home() {
       <section className="form-card">
         <div className="form-card-head"><div><span className="step-label">STEP 01</span><h2>여행 조건을 알려주세요</h2></div><span className="form-card-count">1 / 2</span></div>
         <div className="form-section"><label className="field-label"><Icon name="pin" size={15} /> 어디서 놀까요?</label><div className="area-picker"><div className="input-wrap location-input"><Icon name="pin" size={16} /><input value={request.start} onChange={(event) => update('start', event.target.value)} placeholder="놀고 싶은 구를 선택하세요" /><button type="button" className="area-dropdown-button" aria-label="서울 구 선택" aria-expanded={areaPickerOpen} onClick={() => setAreaPickerOpen((open) => !open)}><span /></button></div>{areaPickerOpen && <div className="area-dropdown" role="listbox" aria-label="서울 구 목록">{seoulDistricts.map((district) => <button type="button" key={district} className={request.start === district || (district === '서울 전체' && request.start === '서울') ? 'selected' : ''} onClick={() => { update('start', district === '서울 전체' ? '서울' : district); setAreaPickerOpen(false) }}>{district}</button>)}</div>}</div><p className="field-hint">선택한 구 안의 맛집·카페·놀거리를 찾아드려요.</p></div>
-        <div className="form-section"><label className="field-label"><Icon name="calendar" size={15} /> 언제 떠날까요?</label><div className="date-row"><div className="input-wrap"><input type="date" value={request.dateStart} onChange={(event) => update('dateStart', event.target.value)} /></div><span className="date-separator">→</span><div className="input-wrap"><input type="date" value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></div></div></div>
-        <div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 누구와 함께하나요?</label><div className="companion-grid">{companions.map((item) => <button type="button" key={item.value} onClick={() => update('companion', item.value)} className={'companion-card' + (request.companion === item.value ? ' selected' : '')}><span className="companion-icon"><Icon name={item.icon} size={23} /></span><strong>{item.label}</strong><small>{item.caption}</small></button>)}</div></div>
-        <div className="split-fields"><div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 몇 명인가요?</label><div className="stepper"><button type="button" onClick={() => update('headcount', Math.max(1, request.headcount - 1))}><Icon name="minus" size={15} /></button><strong>{request.headcount}<small>명</small></strong><button type="button" onClick={() => update('headcount', request.headcount + 1)}><Icon name="plus" size={15} /></button></div></div><div className="form-section"><label className="field-label"><Icon name="card" size={15} /> 1인 예산</label><div className="input-wrap budget-input"><input type="number" min="0" step="10000" value={request.budgetPerPerson} onChange={(event) => update('budgetPerPerson', Number(event.target.value))} /><span>원</span></div></div></div>
+        <div className="form-section"><label className="field-label"><Icon name="calendar" size={15} /> 언제 떠날까요?</label><div className="tag-list">{stayOptions.map((option) => <button type="button" key={option.label} className={'tag-chip' + (stayNights === option.nights ? ' active' : '')} onClick={() => chooseStay(option.nights)}>{option.label}</button>)}</div><div className="date-row"><div className="input-wrap"><input type="date" value={request.dateStart} onChange={(event) => update('dateStart', event.target.value)} /></div><span className="date-separator">→</span><div className="input-wrap"><input type="date" value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></div></div></div>
+        <div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 누구와 함께하나요?</label><div className="companion-grid">{companions.map((item) => <button type="button" key={item.value} onClick={() => chooseCompanion(item.value)} className={'companion-card' + (request.companion === item.value ? ' selected' : '')}><span className="companion-icon"><Icon name={item.icon} size={23} /></span><strong>{item.label}</strong><small>{item.caption}</small></button>)}</div></div>
+        <div className="split-fields"><div className="form-section"><label className="field-label"><Icon name="users" size={15} /> 몇 명인가요?</label><div className="stepper"><button type="button" onClick={() => changeHeadcount(-1)}><Icon name="minus" size={15} /></button><strong>{request.headcount}<small>명</small></strong><button type="button" onClick={() => changeHeadcount(1)}><Icon name="plus" size={15} /></button></div>{partyNotice && <p className="field-hint party-notice">{partyNotice}</p>}</div><div className="form-section"><label className="field-label"><Icon name="card" size={15} /> 1인 예산</label><div className="input-wrap budget-input"><input type="number" min="0" step="10000" value={request.budgetPerPerson} onChange={(event) => update('budgetPerPerson', Number(event.target.value))} /><span>원</span></div></div></div>
         <div className="form-section"><label className="field-label"><Icon name="transit" size={15} /> 어떻게 이동할까요?</label><div className="segmented"><button type="button" className={request.transport === 'public' ? 'selected' : ''} onClick={() => update('transport', 'public')}><Icon name="transit" size={16} /> 대중교통</button><button type="button" className={request.transport === 'car' ? 'selected' : ''} onClick={() => update('transport', 'car')}><Icon name="car" size={16} /> 자차</button></div></div>
         <div className="taste-panel"><div className="taste-heading"><div><span className="step-label">STEP 02</span><h2>취향을 골라주세요</h2></div><span>원하는 만큼 선택</span></div><div className="taste-group"><div className="taste-group-label like-label"><Icon name="heart" size={14} /> 좋아하는 것 <span>ON</span></div><div className="tag-list">{likes.map((item) => <ToggleChip key={item.value} {...item} active={request.likes.includes(item.value)} onClick={() => toggle('likes', item.value)} />)}</div></div><div className="taste-group"><div className="taste-group-label dislike-label"><Icon name="close" size={14} /> 피하고 싶은 것 <span>OFF</span></div><div className="tag-list">{dislikes.map((item) => <ToggleChip key={item.value} {...item} danger active={request.dislikes.includes(item.value)} onClick={() => toggle('dislikes', item.value)} />)}</div></div></div>
         {error && <p className="form-error">{error}</p>}<button type="button" className="primary-button search-button" onClick={submit}><span>내 여행 코스 찾기</span><Icon name="arrow" size={19} /></button><p className="privacy-note">입력한 취향은 추천 결과를 만드는 데만 사용돼요.</p>

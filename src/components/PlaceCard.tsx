@@ -15,9 +15,9 @@ export default function PlaceCard({ index, scored, onRemove, saved, onSave }: { 
         <button type="button" className={'save-button' + (saved ? ' saved' : '')} aria-label={saved ? '찜 취소' : '찜하기'} aria-pressed={saved} onClick={() => onSave(place.id)}><Icon name="heart" size={16} fill={saved ? 'currentColor' : 'none'} /></button>
       </div>
       <div className="place-body">
-        <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div><div className="score-badge"><strong>{scored.score}</strong><small>추천점수</small></div></div>
+        <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div></div>
         <p className="place-description">{place.description}</p>
-        <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating}</span><span><Icon name="clock" size={11} /> {place.durationMin}분</span><span>₩ {cost.toLocaleString()}~</span><span>{place.indoor ? '실내' : '야외'}</span></div>
+        <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating}{typeof place.reviewCount === 'number' ? ` · 리뷰 ${place.reviewCount.toLocaleString()}개` : ''}</span><span><Icon name="clock" size={11} /> {place.durationMin}분</span><span>₩ {cost.toLocaleString()}~</span><span>{place.indoor ? '실내' : '야외'}</span></div>
         <div className="reason-row">{scored.reasons.slice(0, 2).map((reason) => <span key={reason}>✓ {reason}</span>)}</div>
         {place.lodging && <div className="detail-box lodging-detail"><strong>1박 {place.lodging.pricePerNight.toLocaleString()}원</strong><span>{place.lodging.capacity}인 · {place.lodging.parking ? '주차 가능' : '주차 불가'} · {place.lodging.bed}</span></div>}
         {place.menu && <div className="detail-box menu-detail"><strong>대표 메뉴</strong><span>{place.menu.slice(0, 3).map((menu) => menu.name + ' ' + menu.price.toLocaleString() + '원').join('  ·  ')}</span></div>}

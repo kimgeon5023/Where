@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import Home from './Home'
 import { places } from '../data/places'
 import { searchPlaces } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend } from '../lib/scoring'
+import { fetchCurrentWeather, type WeatherCondition } from '../lib/weather'
+import { diffIsoDays, shiftIsoDate } from '../lib/date'
 import type { Category, Place, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
@@ -25,7 +27,7 @@ function dateLabel(date: string) {
 }
 
 function daysBetween(start: string, end: string) {
-  const diff = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1
+  const diff = diffIsoDays(start, end) + 1
   return Math.max(1, Math.min(3, diff || 1))
 }
 
@@ -45,6 +47,8 @@ export default function Result() {
   const [apiPlaces, setApiPlaces] = useState(places)
   const [apiError, setApiError] = useState('')
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [liveWeather, setLiveWeather] = useState<{ condition: WeatherCondition; temp: number } | null>(null)
+  const fetchedWeatherKeyRef = useRef('')
   const [savedIds, setSavedIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('where-saved-places') || '[]') as string[]
@@ -62,6 +66,18 @@ export default function Result() {
     const watchId = navigator.geolocation.watchPosition((position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }), undefined, { enableHighAccuracy: true, maximumAge: 30000 })
     return () => navigator.geolocation.clearWatch(watchId)
   }, [])
+
+  useEffect(() => {
+    if (!userLocation) return
+    const locationKey = `${userLocation.lat.toFixed(2)},${userLocation.lng.toFixed(2)}`
+    if (fetchedWeatherKeyRef.current === locationKey) return
+    fetchedWeatherKeyRef.current = locationKey
+    const controller = new AbortController()
+    fetchCurrentWeather({ lat: userLocation.lat, lon: userLocation.lng }, controller.signal)
+      .then((weather) => setLiveWeather({ condition: weather.condition, temp: weather.temp }))
+      .catch(() => {})
+    return () => controller.abort()
+  }, [userLocation])
 
   useEffect(() => {
     if (!req) return
@@ -82,9 +98,10 @@ export default function Result() {
   }, [req, category, userLocation])
 
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
-  const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded) : [], [req, apiPlaces, excluded])
+  const activeRequest = useMemo(() => req && liveWeather ? { ...req, weather: liveWeather.condition } : req, [req, liveWeather])
+  const scored = useMemo(() => activeRequest ? recommend(apiPlaces, activeRequest, excluded) : [], [activeRequest, apiPlaces, excluded])
   const itineraries = useMemo(() => buildItineraries(scored, dayCount), [scored, dayCount])
-  const currentCourse = itineraries[day] ?? []
+  const currentCourse = useMemo(() => itineraries[day] ?? [], [itineraries, day])
   const allCourse = useMemo(() => {
     const seen = new Set<string>()
     return itineraries.flat().filter((stop) => {
@@ -93,13 +110,19 @@ export default function Result() {
       return true
     }).map((stop) => scored.find((item) => item.place.id === stop.place.id)).filter(Boolean) as typeof scored
   }, [itineraries, scored])
-  const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
-  const coursePlaces = currentCourse.map((stop) => stop.place)
-  const recommended = scored.slice(0, 8)
-  const recommendedPlaces = recommended.map((item) => item.place)
-  const mapPlaces = recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces
-  const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
-  const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
+  const budget = useMemo(() => activeRequest ? estimateBudget(activeRequest, allCourse, dayCount) : { items: [], total: 0, perPerson: 0 }, [activeRequest, allCourse, dayCount])
+  const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
+  const recommended = useMemo(() => scored.slice(0, 8), [scored])
+  const recommendedPlaces = useMemo(() => recommended.map((item) => item.place), [recommended])
+  const mapPlaces = useMemo(() => recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces, [recommendedPlaces, coursePlaces])
+  const center = useMemo<[number, number]>(() => mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978], [mapPlaces])
+  const weather = weatherLabels[activeRequest?.weather ?? 'sunny']
+
+  function resetRecommendations() {
+    setExcluded([])
+    setCategory(undefined)
+    setDay(0)
+  }
 
   function toggleSaved(id: string) {
     setSavedIds((current) => current.includes(id) ? current.filter((savedId) => savedId !== id) : [...current, id])
@@ -108,14 +131,13 @@ export default function Result() {
   function removePlace(id: string) {
     const nextExcluded = [...excluded, id]
     setExcluded(nextExcluded)
-    if (recommended.length > 0 && recommended.every((item) => nextExcluded.includes(item.place.id))) {
-      window.setTimeout(() => window.location.reload(), 150)
-    }
+    if (recommended.length > 0 && recommended.every((item) => nextExcluded.includes(item.place.id))) resetRecommendations()
   }
 
-  if (!req) {
+  if (!activeRequest) {
     return <Home />
   }
+  const request = activeRequest
 
   return (
     <main className="app-shell result-shell">
@@ -124,8 +146,8 @@ export default function Result() {
         <div className="result-top-actions"><span className="saved-count">♡ 저장한 코스 {savedIds.length}</span><Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link><AuthActions /></div>
       </header>
       <section className="result-intro">
-        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1>{req.start}에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
-        <div className="result-weather-live"><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
+        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1>{request.start}에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[request.companion]} {request.headcount}명 · {dateLabel(request.dateStart)} — {dateLabel(request.dateEnd)} · 1인 {request.budgetPerPerson.toLocaleString()}원</p></div>
+        <div className="result-weather-live"><div className="weather-summary"><div className="weather-icon"><Icon name={weather.icon} size={27} /></div><div><strong>{liveWeather ? `${liveWeather.temp}°` : weather.temp}</strong><span>{weather.label} · {weather.rain}</span></div></div></div>
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
@@ -134,16 +156,16 @@ export default function Result() {
           <div className="tag-list" aria-label="장소 카테고리 검색">
             {searchCategories.map((item) => <button type="button" key={item.label} className={'tag-chip' + (category === item.value ? ' active' : '')} onClick={() => { setCategory(item.value); setDay(0) }}>{item.label}</button>)}
           </div>
-          <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
+          <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{dateLabel(shiftIsoDate(request.dateStart, index))}</small></button>)}</div>
           <div className="route-card">
-            <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
+            <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(shiftIsoDate(request.dateStart, day))}</span><h3>오늘은 {request.start === '서울' ? '서울 곳곳' : request.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {liveWeather ? `${liveWeather.temp}°` : weather.temp}</span></div>
             <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className="timeline-item" key={stop.place.id}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
           </div>
           <div className="section-heading place-heading"><div><span className="step-label">AI PICKS</span><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
-          <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>취향과 지도를 함께 분석했어요</strong><p>{req.start} 주변의 맛집·카페·숙소를 이동 거리와 평점까지 고려해 골랐어요.</p></div></div>
+          <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>취향과 지도를 함께 분석했어요</strong><p>{request.start} 주변의 맛집·카페·숙소를 이동 거리와 평점까지 고려해 골랐어요.</p></div></div>
           <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} saved={savedIds.includes(item.place.id)} onSave={toggleSaved} onRemove={removePlace} />)}</div>
-          {recommended.length === 0 && <div className="empty-recommendations"><p>더 이상 추천할 장소가 없어요.</p><button type="button" className="outline-button" onClick={() => window.location.reload()}>새로고침</button></div>}
-          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
+          {recommended.length === 0 && <div className="empty-recommendations"><p>더 이상 추천할 장소가 없어요.</p><button type="button" className="outline-button" onClick={resetRecommendations}>처음 추천 다시 보기</button></div>}
+          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">{dayCount > 1 ? `${dayCount - 1}박 ${dayCount}일` : '당일'} · 1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, request.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, request.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
         <aside className="map-column"><div className="map-card"><div className="map-label"><span>AI MAP</span><strong>추천 장소와 이동 경로</strong></div><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 예상 이동 경로</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>AI가 지도에서 골랐어요</strong><p>취향·평점·예산·날씨와 현재 코스 주변 거리를 함께 반영했어요.</p></div></div></aside>
       </section>
