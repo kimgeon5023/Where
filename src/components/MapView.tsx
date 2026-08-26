@@ -7,9 +7,8 @@ type KakaoLatLng = { getLat?: () => number; getLng?: () => number }
 type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void; getCenter: () => KakaoLatLng; getBounds: () => { getSouthWest: () => KakaoLatLng; getNorthEast: () => KakaoLatLng } }
 type KakaoMapObject = { setMap: (map: KakaoMap | null) => void; setPosition: (position: KakaoLatLng) => void }
 type KakaoMarker = KakaoMapObject
-type KakaoInfoWindow = { open: (map: KakaoMap, marker: KakaoMarker) => void; close: () => void }
 type KakaoPolyline = { setMap: (map: KakaoMap | null) => void }
-type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (element: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap; LatLng: new (lat: number, lng: number) => KakaoLatLng; Marker: new (options: { map: KakaoMap; position: KakaoLatLng; title?: string }) => KakaoMarker; CustomOverlay: new (options: { map: KakaoMap; position: KakaoLatLng; content: HTMLElement; yAnchor: number }) => KakaoMapObject; InfoWindow: new (options: { content: string; removable?: boolean }) => KakaoInfoWindow; Polyline: new (options: { map: KakaoMap; path: KakaoLatLng[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => KakaoPolyline; event: { addListener: (target: KakaoMarker, type: string, handler: () => void) => void } } }
+type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (element: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap; LatLng: new (lat: number, lng: number) => KakaoLatLng; CustomOverlay: new (options: { map: KakaoMap; position: KakaoLatLng; content: HTMLElement; yAnchor: number }) => KakaoMapObject; Polyline: new (options: { map: KakaoMap; path: KakaoLatLng[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => KakaoPolyline; event: { addListener: (target: KakaoMarker, type: string, handler: () => void) => void } } }
 declare global { interface Window { kakao?: KakaoNamespace } }
 
 const scriptId = 'kakao-map-sdk'
@@ -46,6 +45,27 @@ function createProfileOverlay(kakao: KakaoNamespace, map: KakaoMap, position: Ka
   return new kakao.maps.CustomOverlay({ map, position, content, yAnchor: 1 })
 }
 
+const categoryMarker = {
+  cafe: { color: '#b66a36', path: '<path d="M5 9h12v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9ZM17 11h1.5a2.5 2.5 0 0 1 0 5H17M8 4c0 1 1 1 1 2M12 4c0 1 1 1 1 2M16 4c0 1 1 1 1 2M4 21h15" />' },
+  food: { color: '#d26a4b', path: '<path d="M4 3v8M7 3v8M4 7h3M5.5 11v10M15 3v18M15 3c3 2 3 6 0 8" />' },
+  lodging: { color: '#6579b8', path: '<path d="M4 19v-8M4 15h16v4M7 11V8h5a3 3 0 0 1 3 3M20 19v-6a2 2 0 0 0-2-2H4" />' },
+  activity: { color: '#a365b4', path: '<circle cx="12" cy="12" r="8.5" /><path d="m10 8 5 4-5 4V8Z" />' },
+  photo: { color: '#c58b36', path: '<rect x="3" y="5" width="18" height="15" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="m4 17 4.5-4 3.5 3 2.5-2 5.5 5" />' },
+  tour: { color: '#41936f', path: '<path d="M12 21V10" /><path d="M12 15c-4 0-6-2-6-6 4 0 6 2 6 6ZM12 13c0-4 2-6 6-6 0 4-2 6-6 6Z" />' },
+} as const
+
+function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, index: number) {
+  const style = categoryMarker[place.category as keyof typeof categoryMarker] || categoryMarker.tour
+  const content = document.createElement('button')
+  content.type = 'button'
+  content.className = 'map-category-marker'
+  content.style.setProperty('--marker-color', style.color)
+  content.setAttribute('aria-label', `${place.name}, ${place.category}`)
+  content.title = place.name
+  content.innerHTML = `<span>${index + 1}</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${style.path}</svg>`
+  return new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(place.lat, place.lng), content, yAnchor: 1 })
+}
+
 export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number }) => void }) {
   const { user } = useAuth()
   const elementRef = useRef<HTMLDivElement>(null)
@@ -77,8 +97,7 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
 
   useEffect(() => {
     let cancelled = false
-    let markers: KakaoMarker[] = []
-    let infoWindows: KakaoInfoWindow[] = []
+    let markers: KakaoMapObject[] = []
     let polylines: KakaoPolyline[] = []
     loadKakao().then((kakao) => {
       if (cancelled || !elementRef.current) return
@@ -97,14 +116,7 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
       kakao.maps.event.addListener(map as unknown as KakaoMarker, 'dragend', reportViewport)
       kakao.maps.event.addListener(map as unknown as KakaoMarker, 'zoom_changed', reportViewport)
       if (activeLocation) userMarkerRef.current = createProfileOverlay(kakao, map, new kakao.maps.LatLng(activeLocation.lat, activeLocation.lng), user?.profileImage ?? '', user?.name ?? '나')
-      markers = places.map((place, index) => {
-        const marker = new kakao.maps.Marker({ map, position: new kakao.maps.LatLng(place.lat, place.lng), title: place.name })
-        const price = place.price > 0 ? `${place.price.toLocaleString()}원` : '가격 미정'
-        const info = new kakao.maps.InfoWindow({ content: `<div style="padding:10px 12px;font-size:12px;line-height:1.5"><strong>${index + 1}. ${place.name}</strong><br>${place.area} · ${price}</div>`, removable: true })
-        kakao.maps.event.addListener(marker, 'click', () => { infoWindows.forEach((item) => item.close()); info.open(map, marker) })
-        infoWindows.push(info)
-        return marker
-      })
+      markers = places.map((place, index) => createPlaceOverlay(kakao, map, place, index))
       const route = (routeCoordinates.length > 1 ? routeCoordinates : routePlaces).map((place) => new kakao.maps.LatLng(place.lat, place.lng))
       if (route.length > 1) polylines = [new kakao.maps.Polyline({ map, path: route, strokeWeight: 4, strokeColor: '#1d9b77', strokeOpacity: .8, strokeStyle: 'dashed' })]
       setStatus(activeLocation ? '내 위치 중심으로 표시 중' : 'GPS 권한을 허용하면 내 위치 중심으로 이동합니다.')
@@ -113,7 +125,6 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
       cancelled = true
       markers.forEach((marker) => marker.setMap(null))
       polylines.forEach((line) => line.setMap(null))
-      infoWindows.forEach((info) => info.close())
       userMarkerRef.current?.setMap(null)
       userMarkerRef.current = null
       mapRef.current = null
