@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
-import { places } from '../data/places'
 import { searchPlaces } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
 import { getSavedPlaces, toggleSavedPlace } from '../lib/savedPlaces'
@@ -34,13 +33,6 @@ function dateLabel(date: string) {
 function daysBetween(start: string, end: string) {
   const diff = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1
   return Math.max(1, Math.min(3, diff || 1))
-}
-
-function matchesSelectedArea(place: Place, area: string) {
-  const target = area.trim().toLowerCase()
-  if (!target || target === '서울' || target === '서울 전체') return true
-  const placeWithDistrict = place as Place & { district?: string }
-  return [place.area, placeWithDistrict.district].filter(Boolean).some((value) => value!.toLowerCase().includes(target))
 }
 
 function sortScored(items: ScoredPlace[], sort: SortKey): ScoredPlace[] {
@@ -89,10 +81,14 @@ export default function Result() {
   const [day, setDay] = useState(0)
   const [category, setCategory] = useState<Category | undefined>()
   const [sort, setSort] = useState<SortKey>('score')
-  const [apiPlaces, setApiPlaces] = useState(places)
+  const [apiPlaces, setApiPlaces] = useState<Place[]>([])
   const [apiError, setApiError] = useState('')
   const [loading, setLoading] = useState(true)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number } | null>(null)
+  const [keyword, setKeyword] = useState('')
+  const [searchRevision, setSearchRevision] = useState(0)
+  const [routeStatus] = useState('실시간 차량 경로는 준비 중입니다.')
   const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces)
   const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -107,22 +103,24 @@ export default function Result() {
   useEffect(() => {
     if (!req) return
     const controller = new AbortController()
-    setApiError('')
-    setLoading(true)
-    searchPlaces({ area: req.start, category, companion: req.companion, limit: 100, ...userLocation }, controller.signal)
+    const timer = window.setTimeout(() => {
+      setApiError('')
+      setLoading(true)
+      const origin = viewport ?? userLocation ?? { lat: 37.5668, lng: 126.978 }
+      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), limit: 60, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000 }, controller.signal)
       .then(({ data }) => {
-        const areaPlaces = data.filter((place) => matchesSelectedArea(place, req.start))
-        setApiPlaces(areaPlaces)
-        if (areaPlaces.length === 0 && req.start !== '서울') setApiError(`${req.start}에 등록된 추천 장소가 아직 없어요.`)
+        setApiPlaces(data)
+        if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setApiError(`${req.start} 장소 API에 연결하지 못해 해당 지역의 기본 장소를 표시합니다.`)
-        setApiPlaces(places.filter((place) => matchesSelectedArea(place, req.start)))
+        setApiPlaces([])
+        setApiError('카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
       })
       .finally(() => setLoading(false))
-    return () => controller.abort()
-  }, [req, category, userLocation])
+    }, 400)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [req, category, userLocation, viewport, keyword, searchRevision])
 
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
   const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded) : [], [req, apiPlaces, excluded])
@@ -153,12 +151,16 @@ export default function Result() {
     }).map((stop) => scored.find((item) => item.place.id === stop.place.id)).filter(Boolean) as typeof scored
   }, [itineraries, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
-  const coursePlaces = currentCourse.map((stop) => stop.place)
+  const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
   const recommended = sortedScored.slice(0, 8)
   const recommendedPlaces = recommended.map((item) => item.place)
   const mapPlaces = recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
+
+  const handleViewportChange = useCallback((next: { lat: number; lng: number; radius: number }) => {
+    setViewport((current) => current && Math.abs(current.lat - next.lat) < 0.0002 && Math.abs(current.lng - next.lng) < 0.0002 && current.radius === next.radius ? current : next)
+  }, [])
 
   if (!req) {
     return <Navigate to="/" replace />
@@ -182,7 +184,7 @@ export default function Result() {
       <section className="result-layout">
         <div className="itinerary-column">
           <div className="section-heading"><div><span className="step-label">RECOMMENDED ROUTE</span><h2>당신을 위한 맞춤 코스</h2></div><span className="result-count">{scored.length}개의 장소를 찾았어요</span></div>
-          {apiError && <p className="form-error">{apiError}</p>}
+          {apiError && <div className="search-feedback form-error"><span>{apiError}</span><button type="button" className="ghost-button" onClick={() => setSearchRevision((value) => value + 1)}>다시 시도</button></div>}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
             <div className="tag-list" aria-label="장소 카테고리 검색">
               {searchCategories.map((item) => <button type="button" key={item.label} className={'tag-chip' + (category === item.value ? ' active' : '')} onClick={() => { setCategory(item.value); setDay(0) }}>{item.label}</button>)}
@@ -191,9 +193,11 @@ export default function Result() {
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
+          <label className="place-search-input"><Icon name="pin" size={15} /><input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="장소 또는 키워드로 검색" aria-label="장소 검색" />{keyword && <button type="button" onClick={() => setKeyword('')} aria-label="검색어 지우기">×</button>}</label>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
+            <div className="route-summary"><span>{routeStatus}</span></div>
             <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
           </div>
           <div className="section-heading place-heading"><div><h2>지도 주변 맞춤 추천</h2></div><span className="result-count">상위 {recommended.length}곳을 추천해요</span></div>
@@ -205,7 +209,7 @@ export default function Result() {
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 예상 이동 경로</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>AI가 지도에서 골랐어요</strong><p>취향·평점·예산·날씨와 현재 코스 주변 거리를 함께 반영했어요.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} center={center} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> 코스 연결선</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 이동과 검색어 입력은 잠시 멈춘 뒤 자동으로 반영됩니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />

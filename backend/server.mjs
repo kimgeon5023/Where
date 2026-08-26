@@ -1,14 +1,10 @@
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { eunpyeongPlaces } from './eunpyeongPlaces.mjs'
 import { addFriend, createPasswordUser, createRelationshipRequest, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
-const existingPlaces = JSON.parse(await readFile(new URL('../src/data/places.json', import.meta.url), 'utf8'))
-const places = [...eunpyeongPlaces, ...existingPlaces]
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -25,6 +21,10 @@ const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
 const kakaoRestApiKey = process.env.KAKAO_REST_API_KEY?.trim() || ''
+const kakaoMobilityRestApiKey = process.env.KAKAO_MOBILITY_REST_API_KEY?.trim() || ''
+const cacheTtlMs = 3 * 60 * 1000
+const placesCache = new Map()
+const routesCache = new Map()
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
 const companionCategories = { friends: ['activity', 'food', 'photo'], couple: ['cafe', 'tour', 'photo'], family: ['tour', 'activity', 'food'], alone: ['cafe', 'photo', 'tour'] }
 const livePlaceMeta = {
@@ -123,10 +123,18 @@ async function completeGoogleOAuth(request, response, url) {
   }
 }
 
-function matchesArea(place, area) {
-  if (!area || ['서울', '서울시', '서울특별시', 'seoul'].includes(area.toLowerCase())) return true
-  const query = area.toLowerCase()
-  return [place.name, place.area, place.district].filter(Boolean).some((value) => value.toLowerCase().includes(query))
+function fromCache(cache, key) {
+  const hit = cache.get(key)
+  if (!hit || hit.expiresAt <= Date.now()) {
+    cache.delete(key)
+    return null
+  }
+  return hit.value
+}
+
+function cacheValue(cache, key, value) {
+  cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs })
+  return value
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -143,7 +151,7 @@ function kakaoPlaceToPlace(item, category, origin) {
 }
 
 async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin) {
-  if (!kakaoRestApiKey) return null
+  if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
   const selectedDistrict = /구$/.test(area)
   const searchKeyword = keyword
   const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
@@ -152,7 +160,7 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   const responses = await Promise.all(categories.map(async (placeCategory) => {
     const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
     const params = new URLSearchParams({ size: '15', page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
-    const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` } })
+    const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` }, signal: AbortSignal.timeout(10_000) })
     if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
     const payload = await response.json()
     const documents = selectedDistrict ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area)) : (payload.documents || [])
@@ -175,19 +183,65 @@ async function findPlaces(url) {
   }
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
-  if (kakaoRestApiKey && (category || keyword || /구$/.test(area))) {
-    try {
-      const live = await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin)
-      if (live) return live
-    } catch (error) { console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR') }
+  const cacheKey = JSON.stringify({ area, category, companion, keyword, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '' })
+  const cached = fromCache(placesCache, cacheKey)
+  if (cached) return cached
+  try {
+    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin))
+  } catch (error) {
+    console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
+    return { error: 'KAKAO_PLACES_UNAVAILABLE', status: 502 }
   }
+}
 
-  const data = places.filter((place) => {
-    const text = [place.name, place.area, place.district, place.category].filter(Boolean).join(' ').toLowerCase()
-    return matchesArea(place, area) && (!category || place.category === category) && (!keyword || text.includes(keyword))
-  }).slice(0, limit)
+function validPoint(value) {
+  return value && Number.isFinite(value.lat) && Number.isFinite(value.lng)
+    && value.lat >= -90 && value.lat <= 90 && value.lng >= -180 && value.lng <= 180
+}
 
-  return { data: data.map((place) => ({ ...place, distanceKm: Number(haversineKm(origin.lat, origin.lng, place.lat, place.lng).toFixed(2)) })).sort((a, b) => a.distanceKm - b.distanceKm), meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'catalog' } }
+function routeCoordinates(payload) {
+  const roads = payload.routes?.[0]?.sections?.flatMap((section) => section.roads || []) || []
+  return roads.flatMap((road) => {
+    const vertices = road.vertexes || []
+    const points = []
+    for (let index = 0; index < vertices.length; index += 2) points.push({ lng: vertices[index], lat: vertices[index + 1] })
+    return points
+  })
+}
+
+async function findRoute(input) {
+  const origin = input?.origin
+  const stops = Array.isArray(input?.stops) ? input.stops.slice(0, 5) : []
+  if (!validPoint(origin) || stops.length === 0 || !stops.every(validPoint)) return { error: 'INVALID_ROUTE_POINTS', status: 400 }
+  if (input.transport !== 'car') return { error: 'PUBLIC_TRANSIT_ROUTE_UNAVAILABLE', status: 422 }
+  if (!kakaoMobilityRestApiKey) return { error: 'KAKAO_MOBILITY_NOT_CONFIGURED', status: 503 }
+
+  const cacheKey = JSON.stringify({ origin, stops, transport: input.transport })
+  const cached = fromCache(routesCache, cacheKey)
+  if (cached) return cached
+  const destination = stops.at(-1)
+  const params = new URLSearchParams({
+    origin: `${origin.lng},${origin.lat}`,
+    destination: `${destination.lng},${destination.lat}`,
+    priority: 'RECOMMEND',
+    summary: 'false',
+  })
+  if (stops.length > 1) params.set('waypoints', stops.slice(0, -1).map((stop) => `${stop.lng},${stop.lat}`).join('|'))
+  try {
+    const response = await fetch(`https://apis-navi.kakaomobility.com/v1/directions?${params}`, {
+      headers: { Authorization: `KakaoAK ${kakaoMobilityRestApiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!response.ok) throw new Error(`KAKAO_ROUTE_${response.status}`)
+    const payload = await response.json()
+    const summary = payload.routes?.[0]?.summary
+    const coordinates = routeCoordinates(payload)
+    if (!summary || coordinates.length < 2) throw new Error('KAKAO_ROUTE_EMPTY')
+    return cacheValue(routesCache, cacheKey, { data: { coordinates, distanceMeters: summary.distance, durationSeconds: summary.duration } })
+  } catch (error) {
+    console.error('Kakao route search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
+    return { error: 'KAKAO_ROUTE_UNAVAILABLE', status: 502 }
+  }
 }
 
 async function readJsonBody(request) {
@@ -299,7 +353,15 @@ createServer(async (request, response) => {
   }
   if (request.method === 'GET' && url.pathname === '/api/places') {
     const result = await findPlaces(url)
-    return 'error' in result ? sendJson(response, 400, result) : sendJson(response, 200, result)
+    return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
+  }
+  if (request.method === 'POST' && url.pathname === '/api/route') {
+    try {
+      const result = await findRoute(await readJsonBody(request))
+      return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
+    } catch (error) {
+      return sendJson(response, 400, { error: error instanceof Error ? error.message : 'INVALID_ROUTE_REQUEST' })
+    }
   }
   if (request.method === 'GET' && await serveStatic(url, response)) return
   return sendJson(response, 404, { error: 'Not found' })

@@ -3,8 +3,8 @@ import { useAuth } from '../auth/AuthContext'
 import type { Place } from '../types'
 
 type Location = { lat: number; lng: number }
-type KakaoLatLng = object
-type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void }
+type KakaoLatLng = { getLat?: () => number; getLng?: () => number }
+type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void; getCenter: () => KakaoLatLng; getBounds: () => { getSouthWest: () => KakaoLatLng; getNorthEast: () => KakaoLatLng } }
 type KakaoMapObject = { setMap: (map: KakaoMap | null) => void; setPosition: (position: KakaoLatLng) => void }
 type KakaoMarker = KakaoMapObject
 type KakaoInfoWindow = { open: (map: KakaoMap, marker: KakaoMarker) => void; close: () => void }
@@ -13,6 +13,7 @@ type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (
 declare global { interface Window { kakao?: KakaoNamespace } }
 
 const scriptId = 'kakao-map-sdk'
+const emptyRouteCoordinates: Location[] = []
 
 function loadKakao(): Promise<KakaoNamespace> {
   if (window.kakao) return new Promise((resolve) => window.kakao?.maps.load(() => resolve(window.kakao as KakaoNamespace)))
@@ -45,7 +46,7 @@ function createProfileOverlay(kakao: KakaoNamespace, map: KakaoMap, position: Ka
   return new kakao.maps.CustomOverlay({ map, position, content, yAnchor: 1 })
 }
 
-export default function MapView({ places, center, routePlaces = places, userLocation }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; userLocation?: Location | null }) {
+export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number }) => void }) {
   const { user } = useAuth()
   const elementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<KakaoMap | null>(null)
@@ -85,6 +86,16 @@ export default function MapView({ places, center, routePlaces = places, userLoca
       const initial = activeLocation ?? { lat: center[0], lng: center[1] }
       const map = new kakao.maps.Map(elementRef.current, { center: new kakao.maps.LatLng(initial.lat, initial.lng), level: activeLocation ? 5 : 7 })
       mapRef.current = map
+      const reportViewport = () => {
+        const point = map.getCenter()
+        const southWest = map.getBounds().getSouthWest()
+        const northEast = map.getBounds().getNorthEast()
+        const lat = point.getLat?.(); const lng = point.getLng?.()
+        const south = southWest.getLat?.(); const north = northEast.getLat?.()
+        if ([lat, lng, south, north].every((value) => typeof value === 'number')) onViewportChange?.({ lat: lat!, lng: lng!, radius: Math.max(500, Math.round(Math.abs(north! - south!) * 111_000 / 2)) })
+      }
+      kakao.maps.event.addListener(map as unknown as KakaoMarker, 'dragend', reportViewport)
+      kakao.maps.event.addListener(map as unknown as KakaoMarker, 'zoom_changed', reportViewport)
       if (activeLocation) userMarkerRef.current = createProfileOverlay(kakao, map, new kakao.maps.LatLng(activeLocation.lat, activeLocation.lng), user?.profileImage ?? '', user?.name ?? '나')
       markers = places.map((place, index) => {
         const marker = new kakao.maps.Marker({ map, position: new kakao.maps.LatLng(place.lat, place.lng), title: place.name })
@@ -94,7 +105,7 @@ export default function MapView({ places, center, routePlaces = places, userLoca
         infoWindows.push(info)
         return marker
       })
-      const route = routePlaces.map((place) => new kakao.maps.LatLng(place.lat, place.lng))
+      const route = (routeCoordinates.length > 1 ? routeCoordinates : routePlaces).map((place) => new kakao.maps.LatLng(place.lat, place.lng))
       if (route.length > 1) polylines = [new kakao.maps.Polyline({ map, path: route, strokeWeight: 4, strokeColor: '#1d9b77', strokeOpacity: .8, strokeStyle: 'dashed' })]
       setStatus(activeLocation ? '내 위치 중심으로 표시 중' : 'GPS 권한을 허용하면 내 위치 중심으로 이동합니다.')
     }).catch((error: unknown) => { if (!cancelled) setStatus(error instanceof Error ? error.message : '카카오맵을 불러오지 못했습니다.') })
@@ -107,7 +118,7 @@ export default function MapView({ places, center, routePlaces = places, userLoca
       userMarkerRef.current = null
       mapRef.current = null
     }
-  }, [center, places, routePlaces, user?.name, user?.profileImage])
+  }, [center, places, routePlaces, routeCoordinates, user?.name, user?.profileImage, onViewportChange])
 
   function returnToMyLocation() {
     if (!activeLocation || !mapRef.current || !kakaoRef.current) return setStatus('GPS 위치를 확인하는 중입니다.')
