@@ -32,7 +32,7 @@ interface AuthContextValue {
   signUpWithPassword: (input: PasswordSignupInput) => Promise<void>
   logInWithPassword: (input: PasswordLoginInput) => Promise<void>
   signOut: () => void
-  updateProfile: (patch: Pick<User, 'name' | 'profileImage'>) => void
+  updateProfile: (patch: Pick<User, 'name' | 'profileImage'>) => Promise<void>
 }
 
 const STORAGE_KEY = 'where-to-go-auth-user'
@@ -119,13 +119,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null)
       saveUser(null)
     },
-    updateProfile: (patch) => {
-      setUser((current) => {
-        if (!current) return current
-        const nextUser = { ...current, ...patch }
-        saveUser(nextUser)
-        return nextUser
+    updateProfile: async (patch) => {
+      if (!user) throw new Error('Please sign in before updating your profile.')
+      const response = await fetch(apiUrl(`/api/auth/users/${user.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
       })
+      const body = await response.json() as { user?: User; error?: string }
+      if (!response.ok || !body.user) throw new Error(body.error || 'Unable to update profile.')
+      setUser(body.user)
+      saveUser(body.user)
     },
   }), [user])
 

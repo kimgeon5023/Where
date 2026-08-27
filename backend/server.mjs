@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { addFriend, createPasswordUser, createRelationshipRequest, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, upsertGoogleUser } from './database.mjs'
+import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createRelationshipRequest, deleteUser, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
@@ -43,7 +43,7 @@ function sendJson(response, status, body) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   })
   response.end(JSON.stringify(body))
 }
@@ -245,12 +245,12 @@ async function findRoute(input) {
   }
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, maxBytes = 16_384) {
   const chunks = []
   let size = 0
   for await (const chunk of request) {
     size += chunk.length
-    if (size > 16_384) throw new Error('REQUEST_TOO_LARGE')
+    if (size > maxBytes) throw new Error('REQUEST_TOO_LARGE')
     chunks.push(chunk)
   }
   try {
@@ -258,6 +258,11 @@ async function readJsonBody(request) {
   } catch {
     throw new Error('INVALID_JSON')
   }
+}
+
+function validatePassword(password) {
+  if (!/^(?=.*[A-Za-z])(?=.*\d).{8,128}$/.test(password)) return { error: 'Password must contain letters and numbers and be 8 to 128 characters long.' }
+  return { value: password }
 }
 
 function validateSignup(input) {
@@ -268,6 +273,17 @@ function validateSignup(input) {
   if (!/^[a-zA-Z0-9_]{4,20}$/.test(username)) return { error: '아이디는 영문, 숫자, 밑줄 4~20자로 입력해 주세요.' }
   if (!/^(?=.*[A-Za-z])(?=.*\d).{8,128}$/.test(password)) return { error: '비밀번호는 영문과 숫자를 섞어 8~128자로 입력해 주세요.' }
   return { value: { name, username, password } }
+}
+
+function validateProfile(input) {
+  const name = typeof input.name === 'string' ? input.name.trim().normalize('NFC') : ''
+  const profileImage = typeof input.profileImage === 'string' ? input.profileImage : ''
+  if (name.length < 2 || name.length > 20) return { error: 'Name must be 2 to 20 characters long.' }
+  if (profileImage.length > 7_100_000) return { error: 'Profile image is too large.' }
+  if (profileImage && !/^https:\/\/.+/.test(profileImage) && !/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/]+={0,2}$/.test(profileImage)) {
+    return { error: 'Profile image must be a JPG or PNG image.' }
+  }
+  return { value: { name, profileImage } }
 }
 
 async function serveStatic(url, response) {
@@ -351,6 +367,55 @@ createServer(async (request, response) => {
       if (error instanceof Error && error.message === 'REQUEST_TOO_LARGE') return sendJson(response, 413, { error: '요청이 너무 큽니다.' })
       return sendJson(response, 500, { error: '회원가입을 처리하지 못했습니다.' })
     }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/auth/login') {
+    try {
+      const input = await readJsonBody(request)
+      const username = typeof input.username === 'string' ? input.username.trim().toLowerCase() : ''
+      const password = typeof input.password === 'string' ? input.password : ''
+      if (!username || !password) return sendJson(response, 400, { error: 'Username and password are required.' })
+      return sendJson(response, 200, { user: await authenticatePasswordUser({ username, password }) })
+    } catch (error) {
+      if (error instanceof Error && error.code === 'INVALID_CREDENTIALS') return sendJson(response, 401, { error: 'Invalid username or password.' })
+      if (error instanceof Error && error.message === 'INVALID_JSON') return sendJson(response, 400, { error: 'Invalid request body.' })
+      return sendJson(response, 500, { error: 'Unable to sign in.' })
+    }
+  }
+  if (request.method === 'PUT' && url.pathname === '/api/auth/password') {
+    try {
+      const input = await readJsonBody(request)
+      const userId = typeof input.userId === 'string' ? input.userId : ''
+      const currentPassword = typeof input.currentPassword === 'string' ? input.currentPassword : ''
+      const newPassword = typeof input.newPassword === 'string' ? input.newPassword : ''
+      const passwordValidation = validatePassword(newPassword)
+      if (!userId || !currentPassword || 'error' in passwordValidation) return sendJson(response, 400, { error: 'error' in passwordValidation ? passwordValidation.error : 'Current password is required.' })
+      return sendJson(response, 200, { user: await changePassword({ userId, currentPassword, newPassword }) })
+    } catch (error) {
+      if (error instanceof Error && error.code === 'CURRENT_PASSWORD_INVALID') return sendJson(response, 401, { error: 'Current password is incorrect.' })
+      if (error instanceof Error && error.code === 'PASSWORD_AUTH_UNAVAILABLE') return sendJson(response, 403, { error: 'Password changes are unavailable for social accounts.' })
+      if (error instanceof Error && error.code === 'USER_NOT_FOUND') return sendJson(response, 404, { error: 'User not found.' })
+      if (error instanceof Error && error.message === 'INVALID_JSON') return sendJson(response, 400, { error: 'Invalid request body.' })
+      return sendJson(response, 500, { error: 'Unable to change password.' })
+    }
+  }
+  if (request.method === 'PUT' && /^\/api\/auth\/users\/[^/]+$/.test(url.pathname)) {
+    try {
+      const validation = validateProfile(await readJsonBody(request, 7_200_000))
+      if ('error' in validation) return sendJson(response, 400, validation)
+      const userId = url.pathname.split('/').at(-1)
+      return sendJson(response, 200, { user: await updateUserProfile({ userId, ...validation.value }) })
+    } catch (error) {
+      if (error instanceof Error && error.code === 'USER_NOT_FOUND') return sendJson(response, 404, { error: 'User not found.' })
+      if (error instanceof Error && error.message === 'REQUEST_TOO_LARGE') return sendJson(response, 413, { error: 'Profile image is too large.' })
+      if (error instanceof Error && error.message === 'INVALID_JSON') return sendJson(response, 400, { error: 'Invalid request body.' })
+      return sendJson(response, 500, { error: 'Unable to update profile.' })
+    }
+  }
+  if (request.method === 'DELETE' && /^\/api\/auth\/users\/[^/]+$/.test(url.pathname)) {
+    const userId = url.pathname.split('/').at(-1)
+    return await deleteUser(userId)
+      ? sendJson(response, 200, { ok: true })
+      : sendJson(response, 404, { error: 'User not found.' })
   }
   if (request.method === 'GET' && url.pathname === '/api/places') {
     const result = await findPlaces(url)
