@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, scryptSync } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import pg from 'pg'
 
 const { Pool } = pg
@@ -40,6 +40,13 @@ function toUser(row) {
 function passwordRecord(password) {
   const salt = randomBytes(16).toString('hex')
   return { salt, hash: scryptSync(password, salt, 64).toString('hex') }
+}
+
+function passwordMatches(password, hash, salt) {
+  if (!hash || !salt) return false
+  const expected = Buffer.from(hash, 'hex')
+  const actual = Buffer.from(scryptSync(password, salt, 64).toString('hex'), 'hex')
+  return expected.length === actual.length && timingSafeEqual(expected, actual)
 }
 
 export async function initializeDatabase() {
@@ -115,6 +122,76 @@ export async function createPasswordUser({ username, name, password }) {
     }
     throw error
   }
+}
+
+export async function authenticatePasswordUser({ username, password }) {
+  const result = await database.query(
+    `SELECT id, username, name, email, password_hash, password_salt, provider, profile_image, source_site, created_at, last_login_at
+     FROM users WHERE username = $1 AND provider = 'password'`,
+    [username],
+  )
+  const user = result.rows[0]
+  if (!user || !passwordMatches(password, user.password_hash, user.password_salt)) {
+    const error = new Error('INVALID_CREDENTIALS')
+    error.code = 'INVALID_CREDENTIALS'
+    throw error
+  }
+  const updated = await database.query(
+    `UPDATE users SET last_login_at = NOW() WHERE id = $1
+     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+    [user.id],
+  )
+  return toUser(updated.rows[0])
+}
+
+export async function changePassword({ userId, currentPassword, newPassword }) {
+  const result = await database.query(
+    `SELECT id, username, name, email, password_hash, password_salt, provider, profile_image, source_site, created_at, last_login_at
+     FROM users WHERE id = $1`,
+    [userId],
+  )
+  const user = result.rows[0]
+  if (!user) {
+    const error = new Error('USER_NOT_FOUND')
+    error.code = 'USER_NOT_FOUND'
+    throw error
+  }
+  if (user.provider !== 'password') {
+    const error = new Error('PASSWORD_AUTH_UNAVAILABLE')
+    error.code = 'PASSWORD_AUTH_UNAVAILABLE'
+    throw error
+  }
+  if (!passwordMatches(currentPassword, user.password_hash, user.password_salt)) {
+    const error = new Error('CURRENT_PASSWORD_INVALID')
+    error.code = 'CURRENT_PASSWORD_INVALID'
+    throw error
+  }
+  const { salt, hash } = passwordRecord(newPassword)
+  const updated = await database.query(
+    `UPDATE users SET password_hash = $1, password_salt = $2 WHERE id = $3
+     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+    [hash, salt, userId],
+  )
+  return toUser(updated.rows[0])
+}
+
+export async function updateUserProfile({ userId, name, profileImage }) {
+  const result = await database.query(
+    `UPDATE users SET name = $1, profile_image = $2 WHERE id = $3
+     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+    [name, profileImage, userId],
+  )
+  if (!result.rowCount) {
+    const error = new Error('USER_NOT_FOUND')
+    error.code = 'USER_NOT_FOUND'
+    throw error
+  }
+  return toUser(result.rows[0])
+}
+
+export async function deleteUser(userId) {
+  const result = await database.query('DELETE FROM users WHERE id = $1', [userId])
+  return result.rowCount > 0
 }
 
 function socialUsername(providerUserId) {

@@ -67,10 +67,14 @@ export default function Settings() {
     reader.readAsDataURL(file)
   }
 
-  const save = () => {
-    updateProfile({ name: name.trim() || '어디갈까 여행자', profileImage: preview })
-    localStorage.setItem(preferencesKey(user.id), JSON.stringify(preferences))
-    setMessage('프로필을 저장했어요.')
+  const save = async () => {
+    try {
+      await updateProfile({ name: name.trim() || user?.name || '어디갈까 여행자', profileImage: preview })
+      localStorage.setItem(preferencesKey(user.id), JSON.stringify(preferences))
+      setMessage('Profile saved.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Unable to save profile.')
+    }
   }
 
   const savePreferences = () => {

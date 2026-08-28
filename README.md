@@ -98,3 +98,17 @@ https://your-render-api.onrender.com/api/auth/oauth/google/callback
 ```
 
 For local OAuth testing, also register `http://localhost:3001/api/auth/oauth/google/callback`. Google requires a Web application OAuth client.
+
+## Frontend and API connection checklist
+
+The frontend sends every API request through `apiUrl()` in `src/lib/api.ts`. Keep `VITE_API_BASE_URL` empty for local development, where Vite proxies `/api` to `http://localhost:3001`; set it to the deployed API origin for a separately deployed frontend.
+
+Set these values in the frontend deployment environment:
+
+```env
+VITE_API_BASE_URL=https://your-render-api.onrender.com
+VITE_KAKAO_MAP_JS_KEY=your_kakao_javascript_key
+VITE_OPENWEATHER_API_KEY=your_openweathermap_api_key
+```
+
+Set `FRONTEND_URL` and `API_BASE_URL` on the API deployment, then register `${API_BASE_URL}/api/auth/oauth/google/callback` as a Google OAuth redirect URI. Do not commit deployment secrets or `.env` files.
