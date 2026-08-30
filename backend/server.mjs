@@ -1,21 +1,8 @@
 import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { extname, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createRelationshipRequest, deleteUser, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
-const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
-const contentTypes = {
-  '.css': 'text/css; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-}
 const searchableCategories = new Set(['food', 'cafe', 'tour', 'lodging', 'activity'])
 const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
@@ -286,34 +273,15 @@ function validateProfile(input) {
   return { value: { name, profileImage } }
 }
 
-async function serveStatic(url, response) {
-  const requestedPath = decodeURIComponent(url.pathname)
-  const relativePath = requestedPath === '/' ? '/index.html' : requestedPath
-  const candidate = resolve(staticRoot, `.${relativePath}`)
-  if (candidate !== staticRoot && !candidate.startsWith(`${staticRoot}${sep}`)) return false
-
-  let filePath = candidate
-  try {
-    await readFile(filePath)
-  } catch {
-    if (extname(relativePath)) return false
-    filePath = resolve(staticRoot, 'index.html')
-  }
-
-  const body = await readFile(filePath)
-  response.writeHead(200, {
-    'Cache-Control': extname(filePath) === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
-    'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream',
-  })
-  response.end(body)
-  return true
-}
-
 await initializeDatabase()
 
 createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost:3001')
   if (request.method === 'OPTIONS') return sendJson(response, 204, {})
+  if (request.method === 'GET' && url.pathname === '/') return sendJson(response, 200, {
+    name: 'Where Backend API',
+    health: '/api/health',
+  })
   if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { ok: true, database: 'postgresql', siteId })
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google') return startGoogleOAuth(request, response)
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google/callback') return completeGoogleOAuth(request, response, url)
@@ -429,6 +397,5 @@ createServer(async (request, response) => {
       return sendJson(response, 400, { error: error instanceof Error ? error.message : 'INVALID_ROUTE_REQUEST' })
     }
   }
-  if (request.method === 'GET' && await serveStatic(url, response)) return
   return sendJson(response, 404, { error: 'Not found' })
 }).listen(port, () => console.log(`Where API: http://localhost:${port}`))

@@ -7,7 +7,7 @@ const useSsl = process.env.DATABASE_SSL !== 'false'
 const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
 
 if (!connectionString) {
-  throw new Error('DATABASE_URL is required. Add the cloud PostgreSQL connection URL to Where/.env.')
+  throw new Error('DATABASE_URL is required. Add the PostgreSQL connection URL to .env.')
 }
 
 export const siteId = process.env.SITE_ID?.trim() || 'where-main'
