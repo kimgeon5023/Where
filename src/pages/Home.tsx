@@ -34,7 +34,7 @@ function nextLocalDate(today: string) {
 
 function createInitialRequest(today: string): TripRequest {
   return {
-    start: '서울', dateStart: today, dateEnd: nextLocalDate(today), companion: 'friends', headcount: 3,
+    start: '', dateStart: today, dateEnd: nextLocalDate(today), companion: 'friends', headcount: 3,
     budgetPerPerson: 50000, transport: 'public', likes: ['cafe', 'foodie', 'photo'], dislikes: ['crowded'], weather: 'sunny',
   }
 }
@@ -47,7 +47,7 @@ export default function Home() {
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
   const [areaSuggestions, setAreaSuggestions] = useState<SeoulArea[]>([])
   const [areaSearching, setAreaSearching] = useState(false)
-  const [selectedArea, setSelectedArea] = useState(true)
+  const [selectedArea, setSelectedArea] = useState(false)
   const [savedCount] = useState(() => getSavedPlaces().length)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const updateStartDate = (dateStart: string) => setRequest((current) => ({ ...current, dateStart, dateEnd: current.dateEnd < dateStart ? dateStart : current.dateEnd }))
