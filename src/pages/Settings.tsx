@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import Icon from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
@@ -47,7 +47,7 @@ export default function Settings() {
     }
   }, [preferences.darkMode])
 
-  if (!user) return <Navigate to="/" replace />
+  if (!user) return <main className="app-shell settings-shell"><header className="topbar settings-topbar"><Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link><AuthActions /></header><section className="settings-content"><div className="eyebrow">ACCOUNT</div><h1>로그인이<br /><em>필요해요</em></h1><p className="settings-description">프로필과 여행 설정을 저장하려면 로그인해 주세요. 게스트 상태에서는 저장되지 않아요.</p><section className="settings-card"><p style={{ color: '#8a938b', fontSize: 13, margin: 0 }}>로그인하면 프로필, 저장한 코스, 친구 목록을 어디서든 이어서 볼 수 있어요.</p><div style={{ marginTop: 16 }}><AuthActions /></div></section><Link to="/" className="settings-back"><Icon name="arrow" size={15} /> 홈으로 돌아가기</Link></section><BottomNav /></main>
 
   const handleFileChange = (file: File | undefined) => {
     if (!file) return

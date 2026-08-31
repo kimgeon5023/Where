@@ -7,6 +7,7 @@ import Friends from './pages/Friends'
 import NotFound from './pages/NotFound'
 import { AuthProvider } from './auth/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
+import NotificationToast from './components/NotificationToast'
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
             <Route path="/friends" element={<Friends />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <NotificationToast />
         </BrowserRouter>
       </AuthProvider>
     </ErrorBoundary>
