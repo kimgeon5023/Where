@@ -111,7 +111,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, category, companion: req.companion, q: keyword.trim(), tags: category ? undefined : req.likes, includeLodging: !category && dayCount > 1, limit: 40, lat: origin.lat, lng: origin.lng, radius: 8000 }, controller.signal)
+      searchPlaces({ area: req.start, category, companion: req.companion, q: keyword.trim(), tags: category ? undefined : req.likes, includeLodging: !category && dayCount > 1, limit: 40, lat: origin.lat, lng: origin.lng, radius: req.transport === 'car' ? 14_000 : 6_000 }, controller.signal)
       .then(({ data }) => {
         setApiPlaces(data)
         if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')

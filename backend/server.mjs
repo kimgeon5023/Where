@@ -162,11 +162,20 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+function estimatedPrice(category, id) {
+  const hash = [...String(id)].reduce((value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0, 0)
+  const ranges = { food: [12_000, 38_000], cafe: [4_500, 13_000], tour: [0, 9_000], photo: [0, 12_000], activity: [8_000, 45_000], lodging: [90_000, 220_000] }
+  const [minimum, maximum] = ranges[category] || [0, 10_000]
+  return Math.round((minimum + ((hash % 1000) / 1000) * (maximum - minimum)) / 1000) * 1000
+}
+
 function kakaoPlaceToPlace(item, category, origin, tags) {
   const lat = Number(item.y); const lng = Number(item.x)
   const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
   const metadata = livePlaceMeta[category] || livePlaceMeta.tour
-  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: tags || metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
+  const price = estimatedPrice(category, item.id)
+  const lodging = category === 'lodging' ? { pricePerNight: price, capacity: 2, parking: true, bed: '더블 또는 트윈' } : undefined
+  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: tags || metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '', lodging }
 }
 
 function searchBounds(url) {
