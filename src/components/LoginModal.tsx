@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './Icon'
 import { useAuth } from '../auth/AuthContext'
 
@@ -86,7 +87,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     </button>
   )
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onMouseDown={(event) => event.stopPropagation()}>
         <button type="button" className="modal-close" aria-label="로그인 창 닫기" onClick={onClose}><Icon name="close" size={18} /></button>
@@ -131,5 +132,5 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
         {mode === 'social' && <small className="login-note">계정 정보는 Google 동의 화면을 통해서만 전달됩니다.</small>}
       </section>
     </div>
-  )
+  , document.body)
 }
