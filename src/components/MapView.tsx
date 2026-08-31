@@ -76,19 +76,20 @@ const categoryMarker = {
   tour: { color: '#2878f0', path: '<path d="M12 21V10" /><path d="M12 15c-4 0-6-2-6-6 4 0 6 2 6 6ZM12 13c0-4 2-6 6-6 0 4-2 6-6 6Z" />' },
 } as const
 
-function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, index: number) {
+function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, index: number, selected: boolean, onSelect?: (id: string) => void) {
   const style = categoryMarker[place.category as keyof typeof categoryMarker] || categoryMarker.tour
   const content = document.createElement('button')
   content.type = 'button'
-  content.className = 'map-category-marker'
+  content.className = 'map-category-marker' + (selected ? ' selected' : '')
   content.style.setProperty('--marker-color', style.color)
   content.setAttribute('aria-label', `${place.name}, ${place.category}`)
   content.title = place.name
+  content.addEventListener('click', () => onSelect?.(place.id))
   content.innerHTML = `<span>${index + 1}</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${style.path}</svg>`
   return new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(place.lat, place.lng), content, yAnchor: 1 })
 }
 
-export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number; south: number; north: number; west: number; east: number; zoom: number }) => void }) {
+export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange, selectedPlaceId, onPlaceSelect }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number; south: number; north: number; west: number; east: number; zoom: number }) => void; selectedPlaceId?: string; onPlaceSelect?: (id: string) => void }) {
   const { user } = useAuth()
   const elementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<KakaoMap | null>(null)
@@ -159,10 +160,10 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
     if (!map || !kakao || mapRevision === 0) return
     markerRefs.current.forEach((marker) => marker.setMap(null))
     polylineRefs.current.forEach((line) => line.setMap(null))
-    markerRefs.current = places.map((place, index) => createPlaceOverlay(kakao, map, place, index))
+    markerRefs.current = places.map((place, index) => createPlaceOverlay(kakao, map, place, index, place.id === selectedPlaceId, onPlaceSelect))
     const route = (routeCoordinates.length > 1 ? routeCoordinates : routePlaces).map((place) => new kakao.maps.LatLng(place.lat, place.lng))
     polylineRefs.current = route.length > 1 ? [new kakao.maps.Polyline({ map, path: route, strokeWeight: 5, strokeColor: '#2878f0', strokeOpacity: .85, strokeStyle: 'solid' })] : []
-  }, [mapRevision, places, routeCoordinates, routePlaces])
+  }, [mapRevision, places, routeCoordinates, routePlaces, selectedPlaceId, onPlaceSelect])
 
   useEffect(() => {
     const map = mapRef.current

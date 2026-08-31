@@ -16,7 +16,7 @@ const contentTypes = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
 }
-const searchableCategories = new Set(['food', 'cafe', 'tour', 'lodging', 'activity'])
+const searchableCategories = new Set(['food', 'cafe', 'tour', 'photo', 'lodging', 'activity'])
 const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
@@ -35,6 +35,16 @@ const livePlaceMeta = {
   photo: { tags: ['photo'], groupFit: ['friends', 'couple', 'alone'] },
   activity: { tags: ['activity', 'shopping'], groupFit: ['friends', 'couple', 'family'] },
   lodging: { tags: ['rest'], groupFit: ['friends', 'couple', 'family', 'alone'] },
+}
+const preferenceSearches = {
+  cafe: { category: 'cafe', categoryCode: 'CE7', tags: ['cafe', 'rest'] },
+  foodie: { category: 'food', categoryCode: 'FD6', tags: ['foodie'] },
+  photo: { category: 'photo', keyword: '사진 명소', tags: ['photo'] },
+  nature: { category: 'tour', keyword: '공원', tags: ['nature', 'photo', 'rest'] },
+  activity: { category: 'activity', categoryCode: 'CT1', tags: ['activity'] },
+  shopping: { category: 'activity', keyword: '쇼핑몰', tags: ['shopping'] },
+  rest: { category: 'tour', keyword: '산책로', tags: ['rest', 'nature'] },
+  lodging: { category: 'lodging', categoryCode: 'AD5', tags: ['rest'] },
 }
 const seoulDistrictCenters = {
   강남구: [37.5172, 127.0473], 강동구: [37.5301, 127.1238], 강북구: [37.6396, 127.0257], 강서구: [37.5509, 126.8495], 관악구: [37.4784, 126.9516], 광진구: [37.5385, 127.0823], 구로구: [37.4954, 126.8874], 금천구: [37.4569, 126.8955], 노원구: [37.6542, 127.0568], 도봉구: [37.6688, 127.0471], 동대문구: [37.5744, 127.0396], 동작구: [37.5124, 126.9393], 마포구: [37.5663, 126.9019], 서대문구: [37.5791, 126.9368], 서초구: [37.4837, 127.0324], 성동구: [37.5633, 127.0371], 성북구: [37.5894, 127.0167], 송파구: [37.5145, 127.1059], 양천구: [37.5170, 126.8664], 영등포구: [37.5264, 126.8962], 용산구: [37.5326, 126.9906], 은평구: [37.6027, 126.9291], 종로구: [37.5735, 126.9788], 중구: [37.5641, 126.9979], 중랑구: [37.6063, 127.0927],
@@ -152,11 +162,11 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function kakaoPlaceToPlace(item, category, origin) {
+function kakaoPlaceToPlace(item, category, origin, tags) {
   const lat = Number(item.y); const lng = Number(item.x)
   const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
   const metadata = livePlaceMeta[category] || livePlaceMeta.tour
-  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
+  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: tags || metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
 }
 
 function searchBounds(url) {
@@ -174,7 +184,18 @@ function isInBounds(place, bounds) {
   return !bounds || (place.lat >= bounds.south && place.lat <= bounds.north && place.lng >= bounds.west && place.lng <= bounds.east)
 }
 
-async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds) {
+function requestedSearchProfiles(category, tags, includeLodging) {
+  if (category) {
+    const profile = Object.values(preferenceSearches).find((item) => item.category === category)
+    return profile ? [profile] : []
+  }
+  const selected = tags.map((tag) => preferenceSearches[tag]).filter(Boolean)
+  const unique = [...new Map(selected.map((profile) => [`${profile.category}:${profile.keyword || profile.categoryCode}`, profile])).values()]
+  if (includeLodging && !unique.some((profile) => profile.category === 'lodging')) unique.push(preferenceSearches.lodging)
+  return unique.length ? unique : [...searchableCategories].map((item) => ({ category: item, categoryCode: kakaoCategoryCodes[item], tags: livePlaceMeta[item]?.tags || [] }))
+}
+
+async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds, tags, includeLodging) {
   if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
   const selectedDistrict = /구$/.test(area)
   const searchKeyword = keyword
@@ -182,16 +203,17 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
   // "전체"는 동행 유형으로 좁히지 않고, 모든 화면 카테고리를 함께 검색한다.
   // 각 카카오 응답에 카테고리를 보존해야 지도 핀도 맛집·카페·관광지·숙소·액티비티 아이콘으로 구분된다.
-  const categories = category ? [category] : [...searchableCategories]
-  const perCategoryLimit = Math.min(15, Math.max(1, Math.ceil(limit / categories.length) + 2))
-  const responses = await Promise.all(categories.map(async (placeCategory) => {
-    const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-    const params = new URLSearchParams({ size: String(perCategoryLimit), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
+  const profiles = requestedSearchProfiles(category, tags, includeLodging)
+  const perCategoryLimit = Math.min(15, Math.max(3, Math.ceil(limit / profiles.length) + 3))
+  const responses = await Promise.all(profiles.map(async (profile) => {
+    const query = searchKeyword || profile.keyword ? `${area || '서울'} ${searchKeyword || profile.keyword}` : ''
+    const endpoint = query ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
+    const params = new URLSearchParams({ size: String(perCategoryLimit), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(query ? { query } : { category_group_code: profile.categoryCode || kakaoCategoryCodes[profile.category] }) })
     const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` }, signal: AbortSignal.timeout(10_000) })
     if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
     const payload = await response.json()
     const documents = selectedDistrict ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area)) : (payload.documents || [])
-    return documents.map((item) => kakaoPlaceToPlace(item, placeCategory, origin))
+    return documents.map((item) => kakaoPlaceToPlace(item, profile.category, origin, profile.tags))
   }))
   const data = [...new Map(responses.flat().map((place) => [place.id, place])).values()]
     .filter((place) => isInBounds(place, bounds))
@@ -205,20 +227,22 @@ async function findPlaces(url) {
   const category = url.searchParams.get('category')?.trim() ?? ''
   const companion = url.searchParams.get('companion')?.trim() ?? ''
   const keyword = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
+  const tags = (url.searchParams.get('tags') || '').split(',').map((tag) => tag.trim()).filter((tag) => Object.hasOwn(preferenceSearches, tag))
+  const includeLodging = url.searchParams.get('includeLodging') === 'true'
   const requestedLimit = Number(url.searchParams.get('limit') ?? 24)
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 40)) : 24
 
   if (category && !searchableCategories.has(category)) {
-    return { error: 'category must be food, cafe, tour, lodging, or activity' }
+    return { error: 'category must be food, cafe, tour, photo, lodging, or activity' }
   }
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
   const bounds = searchBounds(url)
-  const cacheKey = JSON.stringify({ area, category, companion, keyword, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
+  const cacheKey = JSON.stringify({ area, category, companion, keyword, tags, includeLodging, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
   const cached = fromCache(placesCache, cacheKey)
   if (cached) return cached
   try {
-    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds), placesCacheMaxEntries)
+    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds, tags, includeLodging), placesCacheMaxEntries)
   } catch (error) {
     console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
     return { error: 'KAKAO_PLACES_UNAVAILABLE', status: 502 }

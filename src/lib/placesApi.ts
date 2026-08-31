@@ -1,7 +1,7 @@
-import type { Category, Companion, Place } from '../types'
+import type { Category, Companion, Place, Tag } from '../types'
 import { apiUrl } from './api'
 
-export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
+export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; tags?: Tag[]; includeLodging?: boolean; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
 export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string; source?: string } }
 export type RouteResponse = { data: { coordinates: { lat: number; lng: number }[]; distanceMeters: number; durationSeconds: number } }
 export type RouteRequest = { origin: { lat: number; lng: number }; stops: { lat: number; lng: number }[]; transport: 'car' | 'public' }
@@ -34,7 +34,10 @@ function remember<T>(cache: Map<string, { value: T; expiresAt: number }>, key: s
 
 export async function searchPlaces(params: PlaceSearchParams, signal?: AbortSignal): Promise<PlacesResponse> {
   const query = new URLSearchParams()
-  Object.entries(params).forEach(([key, value]) => { if (value) query.set(key, String(value)) })
+  Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value) && value.length) query.set(key, value.join(','))
+    else if (value !== undefined && value !== '' && value !== false) query.set(key, String(value))
+  })
   const key = query.toString()
   const previous = cached(searchCache, key)
   if (previous) return previous

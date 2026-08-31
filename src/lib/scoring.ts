@@ -1,83 +1,78 @@
-import type { Category, Place, TripRequest } from '../types'
+import type { Category, Place, Tag, TripRequest } from '../types'
 
 export interface ScoreDetail { label: string; max: number; value: number }
 export interface ScoredPlace { place: Place; score: number; detail: ScoreDetail[]; reasons: string[] }
+export interface ItineraryStop { time: string; emoji: string; place: Place }
 
 const companionStyle: Record<TripRequest['companion'], Category[]> = {
-  friends: ['activity', 'food', 'photo'],
-  couple: ['cafe', 'tour', 'photo'],
-  family: ['tour', 'activity', 'food'],
-  alone: ['cafe', 'photo', 'tour'],
+  friends: ['activity', 'food', 'photo', 'cafe'], couple: ['cafe', 'tour', 'photo', 'food'],
+  family: ['tour', 'activity', 'food', 'cafe'], alone: ['cafe', 'photo', 'tour', 'food'],
+}
+const slots = [{ time: '10:00', emoji: '🌤️' }, { time: '12:30', emoji: '🍽️' }, { time: '14:30', emoji: '☕' }, { time: '16:30', emoji: '🎟️' }, { time: '19:00', emoji: '🌙' }]
+
+function distance(a: Place, b: Place) {
+  const r = (value: number) => value * Math.PI / 180
+  const dLat = r(b.lat - a.lat); const dLng = r(b.lng - a.lng)
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+function preference(place: Place, likes: Tag[]) { return likes.find((tag) => place.tags.includes(tag)) || place.tags[0] || place.category }
+function jitter(id: string, seed: number) { let value = Math.floor(seed * 1000003); for (const char of id) value = ((value * 31) + char.charCodeAt(0)) >>> 0; return (value % 700) / 100 }
+
+export function recommend(places: Place[], req: TripRequest, excludedIds: string[] = [], seed = 0): ScoredPlace[] {
+  return places.filter((place) => !excludedIds.includes(place.id) && !place.tags.some((tag) => req.dislikes.includes(tag))).map((place) => {
+    const liked = place.tags.filter((tag) => req.likes.includes(tag)).length
+    const taste = Math.min(28, liked * 14); const group = place.groupFit.includes(req.companion) ? 18 : 5
+    const style = companionStyle[req.companion].includes(place.category) ? 14 : 6
+    const budget = place.price <= req.budgetPerPerson ? 12 : 3; const weather = (req.weather === 'rain' ? place.indoor : !place.indoor) ? 8 : 4
+    const travel = place.distanceKm === undefined ? 5 : Math.max(1, Math.round((10 - place.distanceKm) * 10) / 10)
+    const detail = [{ label: '취향 일치', max: 28, value: taste }, { label: '동행 적합', max: 18, value: group }, { label: '여행 스타일', max: 14, value: style }, { label: '예산 적합', max: 12, value: budget }, { label: '날씨 적합', max: 8, value: weather }, { label: '이동 편의', max: 10, value: travel }]
+    const reasons = [...(liked ? ['선택한 취향과 잘 맞아요.'] : []), ...(companionStyle[req.companion].includes(place.category) ? ['동행 유형에 어울리는 장소예요.'] : []), ...(place.distanceKm !== undefined ? [`출발 기준 ${place.distanceKm.toFixed(1)}km 거리예요.`] : [])]
+    return { place, score: detail.reduce((sum, item) => sum + item.value, 0) + jitter(place.id, seed), detail, reasons }
+  }).sort((a, b) => b.score - a.score)
 }
 
-export function recommend(places: Place[], req: TripRequest, excludedIds: string[] = []): ScoredPlace[] {
-  return places
-    .filter((place) => !excludedIds.includes(place.id))
-    .filter((place) => !place.tags.some((tag) => req.dislikes.includes(tag)))
-    .map((place) => {
-      const liked = place.tags.filter((tag) => req.likes.includes(tag)).length
-      const taste = Math.min(25, liked * 10)
-      const group = place.groupFit.includes(req.companion) ? 20 : 4
-      const style = companionStyle[req.companion].includes(place.category) ? 15 : 5
-      const budget = place.price <= req.budgetPerPerson ? (place.price === 0 || place.price <= req.budgetPerPerson * .25 ? 15 : 11) : 3
-      const rainMode = req.weather === 'rain'
-      const weather = (rainMode && place.indoor) || (!rainMode && !place.indoor) ? 10 : 4
-      const distanceKm = place.distanceKm
-      const distance = distanceKm === undefined ? 6 : Math.max(1, Math.round((req.transport === 'public' ? 10 - distanceKm * 1.2 : 10 - distanceKm * .35) * 10) / 10)
-      const rating = Math.min(5, Math.round(place.rating))
-      const detail = [
-        { label: '취향 일치', max: 25, value: taste },
-        { label: '동행 적합', max: 20, value: group },
-        { label: '여행 스타일', max: 15, value: style },
-        { label: '예산 적합', max: 15, value: budget },
-        { label: '날씨 적합', max: 10, value: weather },
-        { label: '이동 편의', max: 10, value: distance },
-        { label: '평점', max: 5, value: rating },
-      ]
-      const reasons: string[] = []
-      if (liked > 0) reasons.push('좋아하는 취향과 일치합니다.')
-      if (place.groupFit.includes(req.companion)) reasons.push('선택한 동행 유형에 잘 맞습니다.')
-      if (companionStyle[req.companion].includes(place.category)) reasons.push('선택한 여행 스타일에 맞는 장소입니다.')
-      if (distanceKm !== undefined) reasons.push(`${req.transport === 'public' ? '대중교통' : '자차'} 기준 ${distanceKm.toFixed(1)}km 거리입니다.`)
-      if (rainMode && place.indoor) reasons.push('비 오는 날에도 이용하기 좋은 실내 장소입니다.')
-      if (!rainMode && !place.indoor) reasons.push('날씨가 좋을 때 즐기기 좋은 야외 장소입니다.')
-      return { place, score: detail.reduce((sum, item) => sum + item.value, 0), detail, reasons }
-    })
-    .sort((a, b) => b.score - a.score)
+function nearbyOrder(items: ScoredPlace[]) {
+  if (items.length < 3) return items
+  const remaining = [...items].sort((a, b) => b.score - a.score); const ordered = [remaining.shift()!]
+  while (remaining.length) { const last = ordered.at(-1)!; remaining.sort((a, b) => (distance(last.place, a.place) - a.score / 120) - (distance(last.place, b.place) - b.score / 120)); ordered.push(remaining.shift()!) }
+  return ordered
+}
+
+export function selectDiversePlaces(scored: ScoredPlace[], req: TripRequest, days: number, seed: number) {
+  const target = Math.min(16, Math.max(5, days * 5)); const selected: ScoredPlace[] = []; const counts = new Map<string, number>()
+  const candidates = [...scored].sort((a, b) => (b.score + jitter(b.place.id, seed)) - (a.score + jitter(a.place.id, seed)))
+  const tooClose = (candidate: ScoredPlace) => selected.some((item) => distance(candidate.place, item.place) < .18)
+  const add = (candidate: ScoredPlace) => { selected.push(candidate); const key = preference(candidate.place, req.likes); counts.set(key, (counts.get(key) || 0) + 1) }
+  for (const taste of req.likes) { const candidate = candidates.find((item) => !selected.some((chosen) => chosen.place.id === item.place.id) && item.place.tags.includes(taste) && !tooClose(item)); if (candidate) add(candidate) }
+  while (selected.length < target) {
+    const candidate = candidates.filter((item) => !selected.some((chosen) => chosen.place.id === item.place.id)).sort((a, b) => {
+      const penalty = (item: ScoredPlace) => ((counts.get(preference(item.place, req.likes)) || 0) * 14) + (tooClose(item) ? 25 : 0)
+      return (b.score - penalty(b)) - (a.score - penalty(a))
+    })[0]
+    if (!candidate) break
+    add(candidate)
+  }
+  return nearbyOrder(selected)
+}
+
+export function buildItineraries(scored: ScoredPlace[], req: TripRequest, days: number, seed: number): ItineraryStop[][] {
+  const selected = selectDiversePlaces(scored, req, days, seed)
+  const lodging = days > 1 ? selected.find((item) => item.place.category === 'lodging') : undefined
+  const visits = selected.filter((item) => item !== lodging); const perDay = Math.max(3, Math.ceil(visits.length / days))
+  return Array.from({ length: days }, (_, day) => {
+    const stops = nearbyOrder(visits.slice(day * perDay, (day + 1) * perDay)).map((item, index) => ({ ...slots[Math.min(index, slots.length - 1)], place: item.place }))
+    if (day === 0 && lodging) stops.push({ time: '21:30', emoji: '🛏️', place: lodging.place })
+    return stops
+  })
 }
 
 export function estimateBudget(req: TripRequest, course: ScoredPlace[]) {
   const transport = req.transport === 'car' ? 30000 : 6000
-  const lodging = course.find((item) => item.place.category === 'lodging')?.place.lodging
-  const lodgingCost = lodging ? Math.round(lodging.pricePerNight / Math.max(1, req.headcount)) : 0
   const food = course.filter((item) => item.place.category === 'food').reduce((sum, item) => sum + item.place.price, 0)
   const activity = course.filter((item) => !['food', 'lodging', 'cafe'].includes(item.place.category)).reduce((sum, item) => sum + item.place.price, 0)
   const cafe = course.filter((item) => item.place.category === 'cafe').reduce((sum, item) => sum + item.place.price, 0)
-  const items = [{ label: '교통비', cost: transport }, ...(lodgingCost ? [{ label: '숙소', cost: lodgingCost }] : []), { label: '식비', cost: food }, { label: '활동', cost: activity }, { label: '카페', cost: cafe }]
+  const items = [{ label: '교통비', cost: transport }, { label: '식비', cost: food }, { label: '활동', cost: activity }, { label: '카페', cost: cafe }]
   const total = items.reduce((sum, item) => sum + item.cost, 0)
   return { items, total, perPerson: Math.round(total) }
-}
-
-export interface ItineraryStop { time: string; emoji: string; place: Place }
-const slots: { time: string; emoji: string; categories: Category[] }[] = [
-  { time: '10:00', emoji: '🌤️', categories: ['tour', 'photo'] },
-  { time: '12:30', emoji: '🍽️', categories: ['food'] },
-  { time: '14:30', emoji: '☕', categories: ['cafe'] },
-  { time: '16:30', emoji: '🎡', categories: ['activity'] },
-  { time: '19:00', emoji: '🌙', categories: ['food', 'tour', 'photo'] },
-]
-
-export function buildItineraries(scored: ScoredPlace[], days: number): ItineraryStop[][] {
-  const used = new Set<string>(); const result: ItineraryStop[][] = []
-  for (let day = 0; day < days; day += 1) {
-    const available = scored.filter((item) => !used.has(item.place.id)); const stops: ItineraryStop[] = []; const categories = new Set<Category>()
-    for (const slot of slots) {
-      const match = available.find((item) => slot.categories.includes(item.place.category) && !categories.has(item.place.category))
-      if (match) { categories.add(match.place.category); used.add(match.place.id); stops.push({ time: slot.time, emoji: slot.emoji, place: match.place }) }
-    }
-    const lodging = available.find((item) => item.place.category === 'lodging')
-    if (lodging && day === 0) { used.add(lodging.place.id); stops.push({ time: '21:30', emoji: '🛏️', place: lodging.place }) }
-    result.push(stops)
-  }
-  return result
 }

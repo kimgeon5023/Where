@@ -20,7 +20,7 @@ function saveReview(placeId: string, review: Review) {
   localStorage.setItem(reviewsKey(placeId), JSON.stringify([...existing, review]))
 }
 
-export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void }) {
+export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void; onSelect?: (id: string) => void }) {
   const { place } = scored
   const cost = place.category === 'lodging' && place.lodging ? Math.round(place.lodging.pricePerNight / place.lodging.capacity) : place.price
   const [reviews, setReviews] = useState(() => getReviews(place.id))
@@ -39,7 +39,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
   }
 
   return (
-    <article className="place-card">
+    <article className="place-card" onClick={() => onSelect?.(place.id)} style={{ cursor: onSelect ? 'pointer' : undefined }}>
       <div className="place-image" style={{ background: 'linear-gradient(135deg, ' + place.accent + ', #202638)' }}>
         <img src={place.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} />
         <span className="place-number">{index}</span><span className="place-category"><Icon name={icons[place.category]} size={14} /> {labels[place.category]}</span>
