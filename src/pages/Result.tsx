@@ -187,29 +187,37 @@ export default function Result() {
   }
 
   return (
-    <main className="app-shell result-shell">
-      <header className="topbar result-topbar">
-        <Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link>
+    <main className="app-shell result-shell result-booking-shell">
+      <header className="result-booking-header">
+        <Link to="/" className="booking-brand"><span className="booking-brand-mark">W</span><span>어디갈까</span></Link>
+        <nav className="result-breadcrumb" aria-label="현재 위치"><Link to="/">맞춤 코스</Link><span>/</span><strong>추천 결과</strong></nav>
         <div className="result-top-actions">
-          <button type="button" className="ghost-button" style={{ flex: 'none', padding: '8px 12px', fontSize: 11 }} onClick={() => shareCourse(req, coursePlaces)}><Icon name="arrow" size={13} /> 공유</button>
+          <button type="button" className="ghost-button result-share-button" onClick={() => shareCourse(req, coursePlaces)}><Icon name="arrow" size={13} /> 공유</button>
           <Link to="/saved" className="saved-count">♡ 저장한 코스 {savedPlaces.length}</Link>
-          <Link to="/" className="back-button">조건 다시 설정 <span>↗</span></Link>
+          <Link to="/" className="back-button">조건 다시 설정</Link>
           <AuthActions />
         </div>
       </header>
-      <section className="result-intro">
-        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>{companionLabels[req.companion]} {req.headcount}명 · {dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)} · 1인 {req.budgetPerPerson.toLocaleString()}원</p></div>
+      <section className="result-intro result-booking-hero">
+        <div><div className="eyebrow">YOUR SEOUL, YOUR PLAN</div><h1><em>{req.start}</em>에서<br />이렇게 놀아보세요.</h1><p>취향과 동선을 함께 계산해 지금 가장 잘 맞는 코스를 만들었어요.</p></div>
         <div className="result-weather-live"><WeatherWidget compact /></div>
+      </section>
+      <section className="result-summary-bar" aria-label="선택한 여행 조건">
+        <div><Icon name="pin" size={18} /><span>여행 지역<small>{req.start}</small></span></div>
+        <div><Icon name="calendar" size={18} /><span>여행 일정<small>{dateLabel(req.dateStart)} — {dateLabel(req.dateEnd)}</small></span></div>
+        <div><Icon name="users" size={18} /><span>동행<small>{companionLabels[req.companion]} · {req.headcount}명</small></span></div>
+        <div><Icon name="card" size={18} /><span>1인 예산<small>{req.budgetPerPerson.toLocaleString()}원</small></span></div>
+        <div><Icon name={req.transport === 'car' ? 'car' : 'transit'} size={18} /><span>이동수단<small>{req.transport === 'car' ? '자가용' : '대중교통'}</small></span></div>
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
           <div className="section-heading"><div><span className="step-label">RECOMMENDED ROUTE</span><h2>당신을 위한 맞춤 코스</h2></div><span className="result-count">{scored.length}개의 장소를 찾았어요</span></div>
           {apiError && <div className="search-feedback form-error"><span>{apiError}</span><button type="button" className="ghost-button" onClick={() => setSearchRevision((value) => value + 1)}>다시 시도</button></div>}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div className="result-filter-bar">
             <div className="tag-list" aria-label="장소 카테고리 검색">
               {searchCategories.map((item) => <button type="button" key={item.label} className={'tag-chip' + (category === item.value ? ' active' : '')} onClick={() => { setCategory(item.value); setDay(0) }}>{item.label}</button>)}
             </div>
-            <select value={sort} onChange={(e) => setSort(e.target.value as SortKey)} style={{ padding: '6px 10px', border: '1px solid #e2e7e1', borderRadius: 8, background: '#fff', color: '#646b65', fontSize: 11, cursor: 'pointer' }}>
+            <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
@@ -229,7 +237,7 @@ export default function Result() {
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 이동과 검색어 입력은 잠시 멈춘 뒤 자동으로 반영됩니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 실시간 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 중심과 반경을 백엔드에 전송해 주변 장소를 실시간으로 다시 검색합니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
