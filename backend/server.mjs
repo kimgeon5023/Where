@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { randomBytes } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createRelationshipRequest, deleteUser, initializeDatabase, listFriends, listNotifications, listOtherUsers, listUsers, respondToRelationshipRequest, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
+import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createRelationshipRequest, deleteUser, initializeDatabase, listCourses, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
@@ -25,6 +25,8 @@ const kakaoMobilityRestApiKey = process.env.KAKAO_MOBILITY_REST_API_KEY?.trim() 
 const cacheTtlMs = 3 * 60 * 1000
 const placesCache = new Map()
 const routesCache = new Map()
+const placesCacheMaxEntries = 250
+const routesCacheMaxEntries = 100
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
 const livePlaceMeta = {
   food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
@@ -128,10 +130,18 @@ function fromCache(cache, key) {
     cache.delete(key)
     return null
   }
+  // Refresh its insertion order so the Map behaves as a small LRU cache.
+  cache.delete(key)
+  cache.set(key, hit)
   return hit.value
 }
 
-function cacheValue(cache, key, value) {
+function cacheValue(cache, key, value, maxEntries) {
+  const now = Date.now()
+  for (const [cachedKey, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(cachedKey)
+  }
+  while (cache.size >= maxEntries) cache.delete(cache.keys().next().value)
   cache.set(key, { value, expiresAt: Date.now() + cacheTtlMs })
   return value
 }
@@ -149,7 +159,22 @@ function kakaoPlaceToPlace(item, category, origin) {
   return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price: 0, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '' }
 }
 
-async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin) {
+function searchBounds(url) {
+  const south = Number(url.searchParams.get('south'))
+  const north = Number(url.searchParams.get('north'))
+  const west = Number(url.searchParams.get('west'))
+  const east = Number(url.searchParams.get('east'))
+  return Number.isFinite(south) && Number.isFinite(north) && Number.isFinite(west) && Number.isFinite(east)
+    && south < north && west < east
+    ? { south, north, west, east }
+    : null
+}
+
+function isInBounds(place, bounds) {
+  return !bounds || (place.lat >= bounds.south && place.lat <= bounds.north && place.lng >= bounds.west && place.lng <= bounds.east)
+}
+
+async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds) {
   if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
   const selectedDistrict = /구$/.test(area)
   const searchKeyword = keyword
@@ -158,16 +183,20 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   // "전체"는 동행 유형으로 좁히지 않고, 모든 화면 카테고리를 함께 검색한다.
   // 각 카카오 응답에 카테고리를 보존해야 지도 핀도 맛집·카페·관광지·숙소·액티비티 아이콘으로 구분된다.
   const categories = category ? [category] : [...searchableCategories]
+  const perCategoryLimit = Math.min(15, Math.max(1, Math.ceil(limit / categories.length) + 2))
   const responses = await Promise.all(categories.map(async (placeCategory) => {
     const endpoint = searchKeyword ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-    const params = new URLSearchParams({ size: '15', page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
+    const params = new URLSearchParams({ size: String(perCategoryLimit), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(searchKeyword ? { query: searchKeyword } : { category_group_code: kakaoCategoryCodes[placeCategory] }) })
     const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` }, signal: AbortSignal.timeout(10_000) })
     if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
     const payload = await response.json()
     const documents = selectedDistrict ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area)) : (payload.documents || [])
     return documents.map((item) => kakaoPlaceToPlace(item, placeCategory, origin))
   }))
-  const data = [...new Map(responses.flat().map((place) => [place.id, place])).values()].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, limit)
+  const data = [...new Map(responses.flat().map((place) => [place.id, place])).values()]
+    .filter((place) => isInBounds(place, bounds))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, limit)
   return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao' } }
 }
 
@@ -176,19 +205,20 @@ async function findPlaces(url) {
   const category = url.searchParams.get('category')?.trim() ?? ''
   const companion = url.searchParams.get('companion')?.trim() ?? ''
   const keyword = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
-  const requestedLimit = Number(url.searchParams.get('limit') ?? 60)
-  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 100)) : 60
+  const requestedLimit = Number(url.searchParams.get('limit') ?? 24)
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 40)) : 24
 
   if (category && !searchableCategories.has(category)) {
     return { error: 'category must be food, cafe, tour, lodging, or activity' }
   }
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
-  const cacheKey = JSON.stringify({ area, category, companion, keyword, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '' })
+  const bounds = searchBounds(url)
+  const cacheKey = JSON.stringify({ area, category, companion, keyword, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
   const cached = fromCache(placesCache, cacheKey)
   if (cached) return cached
   try {
-    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin))
+    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds), placesCacheMaxEntries)
   } catch (error) {
     console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
     return { error: 'KAKAO_PLACES_UNAVAILABLE', status: 502 }
@@ -238,7 +268,7 @@ async function findRoute(input) {
     const summary = payload.routes?.[0]?.summary
     const coordinates = routeCoordinates(payload)
     if (!summary || coordinates.length < 2) throw new Error('KAKAO_ROUTE_EMPTY')
-    return cacheValue(routesCache, cacheKey, { data: { coordinates, distanceMeters: summary.distance, durationSeconds: summary.duration } })
+    return cacheValue(routesCache, cacheKey, { data: { coordinates, distanceMeters: summary.distance, durationSeconds: summary.duration } }, routesCacheMaxEntries)
   } catch (error) {
     console.error('Kakao route search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
     return { error: 'KAKAO_ROUTE_UNAVAILABLE', status: 502 }
@@ -315,6 +345,21 @@ createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost:3001')
   if (request.method === 'OPTIONS') return sendJson(response, 204, {})
   if (request.method === 'GET' && url.pathname === '/api/health') return sendJson(response, 200, { ok: true, database: 'postgresql', siteId })
+  if (request.method === 'GET' && url.pathname === '/api/areas') {
+    const query = url.searchParams.get('q') || ''
+    const limit = url.searchParams.get('limit') || '8'
+    return sendJson(response, 200, { data: await searchSeoulAreas(query, limit) })
+  }
+  if (request.method === 'GET' && url.pathname === '/api/courses') {
+    const userId = url.searchParams.get('userId')
+    if (!userId) return sendJson(response, 400, { error: 'userId is required' })
+    const result = await listCourses({ userId, page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
+    return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
+  }
+  if (request.method === 'GET' && url.pathname === '/api/reviews') {
+    const result = await listReviews({ placeId: url.searchParams.get('placeId') || '', page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
+    return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
+  }
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google') return startGoogleOAuth(request, response)
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google/callback') return completeGoogleOAuth(request, response, url)
   if (request.method === 'GET' && url.pathname === '/api/auth/users') return sendJson(response, 200, { data: await listUsers() })

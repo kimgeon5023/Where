@@ -5,7 +5,7 @@ import type { Place } from '../types'
 type Location = { lat: number; lng: number }
 type KakaoLatLng = { getLat?: () => number; getLng?: () => number }
 type KakaoBounds = { getSouthWest: () => KakaoLatLng; getNorthEast: () => KakaoLatLng }
-type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void; getCenter: () => KakaoLatLng; getBounds: () => KakaoBounds }
+type KakaoMap = { setCenter: (latLng: KakaoLatLng) => void; setLevel: (level: number) => void; getLevel: () => number; getCenter: () => KakaoLatLng; getBounds: () => KakaoBounds }
 type KakaoMapObject = { setMap: (map: KakaoMap | null) => void; setPosition: (position: KakaoLatLng) => void }
 type KakaoPolyline = { setMap: (map: KakaoMap | null) => void }
 type KakaoNamespace = { maps: { load: (callback: () => void) => void; Map: new (element: HTMLElement, options: { center: KakaoLatLng; level: number }) => KakaoMap; LatLng: new (lat: number, lng: number) => KakaoLatLng; CustomOverlay: new (options: { map: KakaoMap; position: KakaoLatLng; content: HTMLElement; yAnchor: number }) => KakaoMapObject; Polyline: new (options: { map: KakaoMap; path: KakaoLatLng[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => KakaoPolyline; event: { addListener: (target: object, type: string, handler: () => void) => void } } }
@@ -88,7 +88,7 @@ function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, 
   return new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(place.lat, place.lng), content, yAnchor: 1 })
 }
 
-export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number }) => void }) {
+export default function MapView({ places, center, routePlaces = places, routeCoordinates = emptyRouteCoordinates, userLocation, onViewportChange }: { places: Place[]; center: [number, number]; routePlaces?: Place[]; routeCoordinates?: Location[]; userLocation?: Location | null; onViewportChange?: (viewport: Location & { radius: number; south: number; north: number; west: number; east: number; zoom: number }) => void }) {
   const { user } = useAuth()
   const elementRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<KakaoMap | null>(null)
@@ -132,7 +132,8 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
         const northEast = map.getBounds().getNorthEast()
         const lat = point.getLat?.(); const lng = point.getLng?.()
         const south = southWest.getLat?.(); const north = northEast.getLat?.()
-        if ([lat, lng, south, north].every((value) => typeof value === 'number')) viewportCallbackRef.current?.({ lat: lat!, lng: lng!, radius: Math.max(500, Math.round(Math.abs(north! - south!) * 111_000 / 2)) })
+        const west = southWest.getLng?.(); const east = northEast.getLng?.()
+        if ([lat, lng, south, north, west, east].every((value) => typeof value === 'number')) viewportCallbackRef.current?.({ lat: lat!, lng: lng!, radius: Math.max(500, Math.round(Math.abs(north! - south!) * 111_000 / 2)), south: south!, north: north!, west: west!, east: east!, zoom: map.getLevel() })
       }
       kakao.maps.event.addListener(map, 'dragend', reportViewport)
       kakao.maps.event.addListener(map, 'zoom_changed', reportViewport)

@@ -4,7 +4,7 @@ import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
 import { getSavedPlaces } from '../lib/savedPlaces'
-import { isSeoulArea, seoulAreas } from '../lib/seoulAreas'
+import { searchSeoulAreas, type SeoulArea } from '../lib/areasApi'
 import type { Companion, Tag, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
@@ -28,19 +28,43 @@ export default function Home() {
   const [request, setRequest] = useState<TripRequest>(initialRequest)
   const [error, setError] = useState('')
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
+  const [areaSuggestions, setAreaSuggestions] = useState<SeoulArea[]>([])
+  const [areaSearching, setAreaSearching] = useState(false)
+  const [selectedArea, setSelectedArea] = useState(true)
   const [savedCount] = useState(() => getSavedPlaces().length)
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const toggleLike = (value: Tag) => setRequest((current) => ({ ...current, likes: current.likes.includes(value) ? current.likes.filter((tag) => tag !== value) : [...current.likes, value] }))
   const areaQuery = request.start.trim()
-  const areaSuggestions = areaQuery ? seoulAreas.filter((area) => area.includes(areaQuery)).slice(0, 8) : []
-
   useEffect(() => {
     if (request.companion === 'couple' && request.headcount !== 2) update('headcount', 2)
     if (request.companion === 'alone' && request.headcount !== 1) update('headcount', 1)
   }, [request.companion, request.headcount])
 
+  useEffect(() => {
+    if (!areaPickerOpen || !areaQuery) {
+      setAreaSuggestions([])
+      setAreaSearching(false)
+      return undefined
+    }
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setAreaSearching(true)
+      searchSeoulAreas(areaQuery, controller.signal)
+        .then(setAreaSuggestions)
+        .catch((searchError: unknown) => {
+          if (searchError instanceof DOMException && searchError.name === 'AbortError') return
+          setAreaSuggestions([])
+        })
+        .finally(() => setAreaSearching(false))
+    }, 280)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [areaPickerOpen, areaQuery])
+
   const submit = () => {
-    if (!isSeoulArea(request.start)) { setError('서울특별시 안의 구, 동 또는 주요 지역을 선택해 주세요.'); return }
+    if (!request.start.trim() || !selectedArea) { setError('서울 지역 추천 목록에서 지역을 선택해 주세요.'); return }
     if (!request.dateStart || !request.dateEnd || request.dateEnd < request.dateStart) { setError('여행 날짜를 올바르게 선택해 주세요.'); return }
     setError(''); navigate('/result', { state: request })
   }
@@ -61,7 +85,7 @@ export default function Home() {
     <section id="planner" className="booking-planner" aria-label="여행 코스 조건">
       <div className="planner-tabs"><button type="button" className="active"><Icon name="spark" size={16} /> 맞춤 코스 만들기</button><span>서울에서 즐기는 나만의 하루</span></div>
       <div className="planner-main-fields">
-        <label className="planner-field planner-destination"><span><Icon name="pin" size={18} /> 어디로 갈까요?</span><div className="planner-area-picker"><input value={request.start} onFocus={() => setAreaPickerOpen(Boolean(areaQuery))} onBlur={() => window.setTimeout(() => setAreaPickerOpen(false), 120)} onChange={(event) => { update('start', event.target.value); setAreaPickerOpen(Boolean(event.target.value.trim())) }} onKeyDown={(event) => { if (event.key === 'Escape') setAreaPickerOpen(false) }} placeholder="서울의 구, 동 또는 주요 지역" autoComplete="off" aria-autocomplete="list" aria-controls="seoul-area-suggestions" aria-expanded={areaPickerOpen && Boolean(areaQuery)} />{areaPickerOpen && areaQuery && <div id="seoul-area-suggestions" className="planner-area-suggestions" role="listbox" aria-label="서울 지역 추천">{areaSuggestions.length > 0 ? areaSuggestions.map((area) => <button type="button" key={area} role="option" aria-selected={request.start === area} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('start', area); setAreaPickerOpen(false) }}>{area}</button>) : <p>서울 지역 검색 결과가 없습니다.</p>}</div>}</div></label>
+        <label className="planner-field planner-destination"><span><Icon name="pin" size={18} /> 어디로 갈까요?</span><div className="planner-area-picker"><input value={request.start} onFocus={() => setAreaPickerOpen(Boolean(areaQuery))} onBlur={() => window.setTimeout(() => setAreaPickerOpen(false), 120)} onChange={(event) => { update('start', event.target.value); setSelectedArea(false); setAreaPickerOpen(Boolean(event.target.value.trim())) }} onKeyDown={(event) => { if (event.key === 'Escape') setAreaPickerOpen(false) }} placeholder="서울의 구, 동 또는 주요 지역" autoComplete="off" aria-autocomplete="list" aria-controls="seoul-area-suggestions" aria-expanded={areaPickerOpen && Boolean(areaQuery)} />{areaPickerOpen && areaQuery && <div id="seoul-area-suggestions" className="planner-area-suggestions" role="listbox" aria-label="서울 지역 추천">{areaSearching ? <p>검색 중...</p> : areaSuggestions.length > 0 ? areaSuggestions.map((area) => <button type="button" key={area.id} role="option" aria-selected={request.start === area.name} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('start', area.name); setSelectedArea(true); setAreaPickerOpen(false) }}>{area.name}</button>) : <p>서울 지역 검색 결과가 없습니다.</p>}</div>}</div></label>
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 출발일</span><input type="date" value={request.dateStart} onChange={(event) => update('dateStart', event.target.value)} /></label>
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 도착일</span><input type="date" value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></label>
         <div className="planner-field planner-guests"><span><Icon name="users" size={18} /> 인원</span><div className="compact-stepper"><button type="button" aria-label="인원 줄이기" onClick={() => update('headcount', Math.max(1, request.headcount - 1))}><Icon name="minus" size={14} /></button><strong>{request.headcount}명</strong><button type="button" aria-label="인원 늘리기" onClick={() => update('headcount', request.headcount + 1)}><Icon name="plus" size={14} /></button></div></div>

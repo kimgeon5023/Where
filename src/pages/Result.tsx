@@ -85,7 +85,7 @@ export default function Result() {
   const [apiError, setApiError] = useState('')
   const [loading, setLoading] = useState(true)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number } | null>(null)
+  const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number; south: number; north: number; west: number; east: number; zoom: number } | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
   const [route, setRoute] = useState<RouteResponse['data'] | null>(null)
@@ -109,7 +109,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = viewport ?? userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), limit: 60, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000 }, controller.signal)
+      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), limit: 24, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000, south: viewport?.south, north: viewport?.north, west: viewport?.west, east: viewport?.east, zoom: viewport?.zoom }, controller.signal)
       .then(({ data }) => {
         setApiPlaces(data)
         if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
@@ -120,7 +120,7 @@ export default function Result() {
         setApiError('카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
       })
       .finally(() => setLoading(false))
-    }, 400)
+    }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [req, category, userLocation, viewport, keyword, searchRevision])
 
@@ -160,7 +160,7 @@ export default function Result() {
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
-  const handleViewportChange = useCallback((next: { lat: number; lng: number; radius: number }) => {
+  const handleViewportChange = useCallback((next: { lat: number; lng: number; radius: number; south: number; north: number; west: number; east: number; zoom: number }) => {
     setViewport((current) => current && Math.abs(current.lat - next.lat) < 0.0002 && Math.abs(current.lng - next.lng) < 0.0002 && current.radius === next.radius ? current : next)
   }, [])
 
