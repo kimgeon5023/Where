@@ -82,7 +82,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
             <Icon name="camera" size={13} /> 후기 남기기
           </button>
         )}
-        <div className="place-actions">{onRemove && <button type="button" onClick={() => onRemove(place.id)} className="ghost-button"><Icon name="close" size={13} /> 이 장소는 빼기</button>}<a href={'https://map.kakao.com/?q=' + encodeURIComponent(place.name)} target="_blank" rel="noreferrer" className="ghost-button">지도에서 보기 <Icon name="arrow" size={13} /></a></div>
+        <div className="place-actions">{onRemove && <button type="button" onClick={() => onRemove(place.id)} className="ghost-button"><Icon name="close" size={13} /> 이 장소는 빼기</button>}<a href={place.placeUrl || ('https://map.kakao.com/?q=' + encodeURIComponent(place.name))} target="_blank" rel="noreferrer" className="ghost-button">지도에서 보기 <Icon name="arrow" size={13} /></a></div>
       </div>
     </article>
   )
