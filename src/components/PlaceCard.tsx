@@ -1,40 +1,39 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ScoredPlace } from '../lib/scoring'
 import Icon, { type IconName } from './Icon'
+import { useAuth } from '../auth/AuthContext'
+import { apiUrl } from '../lib/api'
 
 const labels: Record<string, string> = { tour: '명소', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티', lodging: '숙소' }
 const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
 
-interface Review { text: string; rating: number; time: string }
-const reviewsKey = (id: string) => `where-to-go-reviews:${id}`
-
-function getReviews(placeId: string): Review[] {
-  try {
-    const stored = localStorage.getItem(reviewsKey(placeId))
-    return stored ? JSON.parse(stored) as Review[] : []
-  } catch { return [] }
-}
-
-function saveReview(placeId: string, review: Review) {
-  const existing = getReviews(placeId)
-  localStorage.setItem(reviewsKey(placeId), JSON.stringify([...existing, review]))
-}
+interface Review { id: string; user_id: string | null; user_name: string | null; content: string; rating: number; created_at: string }
 
 export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void; onSelect?: (id: string) => void }) {
   const { place } = scored
-  const [reviews, setReviews] = useState(() => getReviews(place.id))
+  const { user } = useAuth()
+  const [reviews, setReviews] = useState<Review[]>([])
   const [reviewText, setReviewText] = useState('')
   const [reviewRating, setReviewRating] = useState(5)
   const [showReviewForm, setShowReviewForm] = useState(false)
+  const [reviewError, setReviewError] = useState('')
 
-  const submitReview = () => {
-    if (!reviewText.trim()) return
-    const review: Review = { text: reviewText.trim(), rating: reviewRating, time: new Date().toLocaleDateString('ko-KR') }
-    saveReview(place.id, review)
-    setReviews((prev) => [...prev, review])
-    setReviewText('')
-    setReviewRating(5)
-    setShowReviewForm(false)
+  useEffect(() => { fetch(apiUrl(`/api/places/${encodeURIComponent(place.id)}/reviews?limit=20`)).then((response) => response.json()).then((body: { data?: Review[] }) => setReviews(body.data || [])).catch(() => setReviews([])) }, [place.id])
+
+  const submitReview = async () => {
+    if (!user?.token) { setReviewError('로그인 후 후기를 남길 수 있어요.'); return }
+    if (!reviewText.trim()) { setReviewError('후기 내용을 입력해 주세요.'); return }
+    const response = await fetch(apiUrl(`/api/places/${encodeURIComponent(place.id)}/reviews`), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` }, body: JSON.stringify({ content: reviewText.trim(), rating: reviewRating }) })
+    const body = await response.json() as { data?: Review; error?: string }
+    if (!response.ok || !body.data) { setReviewError(body.error || '후기를 등록하지 못했습니다.'); return }
+    setReviews((prev) => [body.data!, ...prev]); setReviewText(''); setReviewRating(5); setReviewError(''); setShowReviewForm(false)
+  }
+
+  const deleteReview = async (reviewId: string) => {
+    if (!user?.token || !window.confirm('이 후기를 삭제하시겠습니까?')) return
+    const response = await fetch(apiUrl(`/api/reviews/${reviewId}`), { method: 'DELETE', headers: { Authorization: `Bearer ${user.token}` } })
+    if (response.ok) setReviews((prev) => prev.filter((review) => review.id !== reviewId))
+    else setReviewError('후기를 삭제하지 못했습니다.')
   }
 
   return (
@@ -57,27 +56,29 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
             {reviews.slice(-2).map((r, i) => (
               <div key={i} style={{ marginTop: 8, padding: '6px 0', borderTop: i > 0 ? '1px solid #e8ece7' : 'none' }}>
                 <span style={{ color: '#f4b448', fontSize: 11 }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
-                <p style={{ margin: '3px 0 0', color: '#646b65', fontSize: 11, lineHeight: 1.5 }}>{r.text}</p>
-                <span style={{ color: '#aab5ac', fontSize: 9 }}>{r.time}</span>
+                <p style={{ margin: '3px 0 0', color: '#646b65', fontSize: 11, lineHeight: 1.5 }}>{r.content}</p>
+                <span style={{ color: '#aab5ac', fontSize: 9 }}>{r.user_name || '익명'} · {new Date(r.created_at).toLocaleDateString('ko-KR')}</span>{r.user_id === user?.id && <button type="button" onClick={() => deleteReview(r.id)} style={{ marginLeft: 8, border: 0, background: 'transparent', color: '#b34d4d', fontSize: 10, cursor: 'pointer' }}>삭제</button>}
               </div>
             ))}
           </div>
         )}
         {showReviewForm ? (
           <div style={{ marginTop: 13, padding: 12, borderRadius: 10, border: '1px solid #dceee5', background: '#f4fbf7' }}>
+            <strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>방문 후기를 남겨주세요</strong>
             <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <button key={star} type="button" onClick={() => setReviewRating(star)} style={{ border: 0, background: 'transparent', cursor: 'pointer', fontSize: 18, color: star <= reviewRating ? '#f4b448' : '#d6ddd7' }}>★</button>
               ))}
             </div>
             <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)} placeholder="방문 후기를 남겨주세요..." rows={3} style={{ width: '100%', padding: '8px 10px', border: '1px solid #dceee5', borderRadius: 8, resize: 'vertical', fontSize: 12, fontFamily: 'inherit', outline: 'none' }} />
+            {reviewError && <p style={{ margin: '6px 0 0', color: '#b34d4d', fontSize: 11 }}>{reviewError}</p>}
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button type="button" className="ghost-button" onClick={() => setShowReviewForm(false)} style={{ flex: 1 }}>취소</button>
               <button type="button" className="primary-button" onClick={submitReview} style={{ flex: 1, minHeight: 36, fontSize: 11 }}>후기 등록</button>
             </div>
           </div>
         ) : (
-          <button type="button" className="ghost-button" style={{ marginTop: 13 }} onClick={() => setShowReviewForm(true)}>
+          <button type="button" className="ghost-button" style={{ marginTop: 13 }} onClick={() => { setReviewError(user ? '' : '로그인 후 후기를 남길 수 있어요.'); setShowReviewForm(true) }}>
             <Icon name="camera" size={13} /> 후기 남기기
           </button>
         )}

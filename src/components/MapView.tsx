@@ -82,9 +82,15 @@ function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, 
   content.type = 'button'
   content.className = 'map-category-marker' + (selected ? ' selected' : '')
   content.style.setProperty('--marker-color', style.color)
-  content.setAttribute('aria-label', `${place.name}, ${place.category}`)
-  content.title = place.name
-  content.addEventListener('click', () => onSelect?.(place.id))
+  content.setAttribute('aria-label', `${place.name} 카카오맵에서 보기`)
+  content.title = `${place.name} 카카오맵에서 보기`
+  content.addEventListener('click', () => {
+    onSelect?.(place.id)
+    // Kakao keyword results provide a canonical place page. The fallback still
+    // opens Kakao Map when a provider has no individual place URL.
+    const destination = place.placeUrl || `https://map.kakao.com/?q=${encodeURIComponent(place.name)}`
+    window.open(destination, '_blank', 'noopener,noreferrer')
+  })
   content.innerHTML = `<span>${index + 1}</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${style.path}</svg>`
   return new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(place.lat, place.lng), content, yAnchor: 1 })
 }

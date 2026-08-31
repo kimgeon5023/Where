@@ -1,8 +1,8 @@
 import { createServer } from 'node:http'
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createRelationshipRequest, deleteUser, initializeDatabase, listCourses, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
+import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, deletePlaceReview, deleteUser, initializeDatabase, listCourses, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
@@ -27,6 +27,7 @@ const placesCache = new Map()
 const routesCache = new Map()
 const placesCacheMaxEntries = 250
 const routesCacheMaxEntries = 100
+const authSecret = process.env.AUTH_TOKEN_SECRET || randomBytes(32).toString('base64url')
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
 const livePlaceMeta = {
   food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
@@ -90,9 +91,9 @@ function oauthStateCookie(value, request, maxAge = 600) {
   return `where_oauth_state=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/api/auth/oauth/google/callback; HttpOnly; SameSite=Lax${secure}`
 }
 
-function frontendOAuthRedirect(response, { user, error }, cookies = []) {
+function frontendOAuthRedirect(response, { user, token, error }, cookies = []) {
   const fragment = user
-    ? `oauth_user=${Buffer.from(JSON.stringify(user)).toString('base64url')}`
+    ? `oauth_user=${Buffer.from(JSON.stringify(user)).toString('base64url')}&oauth_token=${encodeURIComponent(token || '')}`
     : `oauth_error=${encodeURIComponent(error || '소셜 로그인을 완료하지 못했습니다.')}`
   redirect(response, `${frontendUrl}/#${fragment}`, cookies)
 }
@@ -124,7 +125,7 @@ async function completeGoogleOAuth(request, response, url) {
 
     const profile = await fetchGoogleProfile(code, oauthCallbackUri(request))
     const user = await upsertGoogleUser(profile)
-    frontendOAuthRedirect(response, { user }, [clearedCookie])
+    frontendOAuthRedirect(response, { user, token: createAuthToken(user.id) }, [clearedCookie])
   } catch (error) {
     console.error('Google OAuth callback failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
     const message = error instanceof Error && error.message === 'OAUTH_ACCESS_DENIED'
@@ -169,6 +170,21 @@ function estimatedPrice(category, id) {
   return Math.round((minimum + ((hash % 1000) / 1000) * (maximum - minimum)) / 1000) * 1000
 }
 
+function createAuthToken(userId) {
+  const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + 1000 * 60 * 60 * 24 * 14 })).toString('base64url')
+  const signature = createHmac('sha256', authSecret).update(payload).digest('base64url')
+  return `${payload}.${signature}`
+}
+
+function authenticatedUserId(request) {
+  const token = request.headers.authorization?.replace(/^Bearer\s+/i, '')
+  if (!token || !token.includes('.')) return null
+  const [payload, signature] = token.split('.')
+  const expected = createHmac('sha256', authSecret).update(payload).digest('base64url')
+  if (signature.length !== expected.length || !timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null
+  try { const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); return data.exp > Date.now() && typeof data.sub === 'string' ? data.sub : null } catch { return null }
+}
+
 function kakaoPlaceToPlace(item, category, origin, tags) {
   const lat = Number(item.y); const lng = Number(item.x)
   const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
@@ -201,10 +217,12 @@ function requestedSearchProfiles(category, tags, includeLodging) {
   const selected = tags.map((tag) => preferenceSearches[tag]).filter(Boolean)
   const unique = [...new Map(selected.map((profile) => [`${profile.category}:${profile.keyword || profile.categoryCode}`, profile])).values()]
   if (includeLodging && !unique.some((profile) => profile.category === 'lodging')) unique.push(preferenceSearches.lodging)
-  return unique.length ? unique : [...searchableCategories].map((item) => ({ category: item, categoryCode: kakaoCategoryCodes[item], tags: livePlaceMeta[item]?.tags || [] }))
+  // Accommodation is a separate result type. It must never appear in the
+  // ordinary explore list unless a caller explicitly asks for it.
+  return unique.length ? unique : [...searchableCategories].filter((item) => item !== 'lodging').map((item) => ({ category: item, categoryCode: kakaoCategoryCodes[item], tags: livePlaceMeta[item]?.tags || [] }))
 }
 
-async function searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds, tags, includeLodging) {
+async function searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags, includeLodging) {
   if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
   const selectedDistrict = /구$/.test(area)
   const searchKeyword = keyword
@@ -217,18 +235,18 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   const responses = await Promise.all(profiles.map(async (profile) => {
     const query = searchKeyword || profile.keyword ? `${area || '서울'} ${searchKeyword || profile.keyword}` : ''
     const endpoint = query ? 'https://dapi.kakao.com/v2/local/search/keyword.json' : 'https://dapi.kakao.com/v2/local/search/category.json'
-    const params = new URLSearchParams({ size: String(perCategoryLimit), page: '1', x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(query ? { query } : { category_group_code: profile.categoryCode || kakaoCategoryCodes[profile.category] }) })
+    const params = new URLSearchParams({ size: String(perCategoryLimit), page: String(page), x: String(searchCenter.lng), y: String(searchCenter.lat), radius: String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000)), ...(query ? { query } : { category_group_code: profile.categoryCode || kakaoCategoryCodes[profile.category] }) })
     const response = await fetch(`${endpoint}?${params}`, { headers: { Authorization: `KakaoAK ${kakaoRestApiKey}` }, signal: AbortSignal.timeout(10_000) })
     if (!response.ok) throw new Error(`KAKAO_PLACES_${response.status}`)
     const payload = await response.json()
     const documents = selectedDistrict ? (payload.documents || []).filter((item) => `${item.address_name || ''} ${item.road_address_name || ''}`.includes(area)) : (payload.documents || [])
-    return documents.map((item) => kakaoPlaceToPlace(item, profile.category, origin, profile.tags))
+    return { places: documents.map((item) => kakaoPlaceToPlace(item, profile.category, origin, profile.tags)), isEnd: Boolean(payload.meta?.is_end) }
   }))
-  const data = [...new Map(responses.flat().map((place) => [place.id, place])).values()]
+  const data = [...new Map(responses.flatMap((response) => response.places).map((place) => [place.id, place])).values()]
     .filter((place) => isInBounds(place, bounds))
     .sort((a, b) => a.distanceKm - b.distanceKm)
     .slice(0, limit)
-  return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao' } }
+  return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao', page, hasMore: responses.some((response) => !response.isEnd) } }
 }
 
 async function findPlaces(url) {
@@ -240,6 +258,8 @@ async function findPlaces(url) {
   const includeLodging = url.searchParams.get('includeLodging') === 'true'
   const requestedLimit = Number(url.searchParams.get('limit') ?? 24)
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 40)) : 24
+  const requestedPage = Number(url.searchParams.get('page') ?? 1)
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.min(Math.floor(requestedPage), 45)) : 1
 
   if (category && !searchableCategories.has(category)) {
     return { error: 'category must be food, cafe, tour, photo, lodging, or activity' }
@@ -247,11 +267,11 @@ async function findPlaces(url) {
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
   const bounds = searchBounds(url)
-  const cacheKey = JSON.stringify({ area, category, companion, keyword, tags, includeLodging, limit, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
+  const cacheKey = JSON.stringify({ area, category, companion, keyword, tags, includeLodging, limit, page, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
   const cached = fromCache(placesCache, cacheKey)
   if (cached) return cached
   try {
-    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, origin, bounds, tags, includeLodging), placesCacheMaxEntries)
+    return cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags, includeLodging), placesCacheMaxEntries)
   } catch (error) {
     console.error('Kakao place search failed:', error instanceof Error ? error.message : 'UNKNOWN_ERROR')
     return { error: 'KAKAO_PLACES_UNAVAILABLE', status: 502 }
@@ -393,6 +413,29 @@ createServer(async (request, response) => {
     const result = await listReviews({ placeId: url.searchParams.get('placeId') || '', page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
     return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
   }
+  if (request.method === 'GET' && /^\/api\/places\/[^/]+\/reviews$/.test(url.pathname)) {
+    const placeId = decodeURIComponent(url.pathname.split('/')[3])
+    const result = await listReviews({ placeId, page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
+    return sendJson(response, 200, result)
+  }
+  if (request.method === 'POST' && /^\/api\/places\/[^/]+\/reviews$/.test(url.pathname)) {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
+    try {
+      const input = await readJsonBody(request, 16_384)
+      const content = typeof input.content === 'string' ? input.content.trim() : ''
+      const rating = Number(input.rating)
+      if (!content || content.length > 1000 || !Number.isInteger(rating) || rating < 1 || rating > 5) return sendJson(response, 400, { error: '후기 내용과 1~5점 별점을 확인해 주세요.' })
+      const placeId = decodeURIComponent(url.pathname.split('/')[3])
+      return sendJson(response, 201, { data: await createPlaceReview({ userId, placeId, rating, content }) })
+    } catch { return sendJson(response, 400, { error: '후기를 등록하지 못했습니다.' }) }
+  }
+  if (request.method === 'DELETE' && /^\/api\/reviews\/[^/]+$/.test(url.pathname)) {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
+    try { await deletePlaceReview({ reviewId: url.pathname.split('/').at(-1), userId }); return sendJson(response, 200, { ok: true })
+    } catch (error) { return sendJson(response, error?.code === 'REVIEW_FORBIDDEN' ? 403 : error?.code === 'REVIEW_NOT_FOUND' ? 404 : 500, { error: error?.code || 'REVIEW_DELETE_FAILED' }) }
+  }
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google') return startGoogleOAuth(request, response)
   if (request.method === 'GET' && url.pathname === '/api/auth/oauth/google/callback') return completeGoogleOAuth(request, response, url)
   if (request.method === 'GET' && url.pathname === '/api/auth/users') return sendJson(response, 200, { data: await listUsers() })
@@ -438,7 +481,8 @@ createServer(async (request, response) => {
     try {
       const validation = validateSignup(await readJsonBody(request))
       if ('error' in validation) return sendJson(response, 400, validation)
-      return sendJson(response, 201, { user: await createPasswordUser(validation.value) })
+      const user = await createPasswordUser(validation.value)
+      return sendJson(response, 201, { user, token: createAuthToken(user.id) })
     } catch (error) {
       if (error instanceof Error && error.code === 'USERNAME_ALREADY_EXISTS') return sendJson(response, 409, { error: '이미 사용 중인 아이디입니다.' })
       if (error instanceof Error && error.message === 'INVALID_JSON') return sendJson(response, 400, { error: '요청 형식이 올바르지 않습니다.' })
@@ -452,7 +496,8 @@ createServer(async (request, response) => {
       const username = typeof input.username === 'string' ? input.username.trim().toLowerCase() : ''
       const password = typeof input.password === 'string' ? input.password : ''
       if (!username || !password) return sendJson(response, 400, { error: 'Username and password are required.' })
-      return sendJson(response, 200, { user: await authenticatePasswordUser({ username, password }) })
+      const user = await authenticatePasswordUser({ username, password })
+      return sendJson(response, 200, { user, token: createAuthToken(user.id) })
     } catch (error) {
       if (error instanceof Error && error.code === 'INVALID_CREDENTIALS') return sendJson(response, 401, { error: 'Invalid username or password.' })
       if (error instanceof Error && error.message === 'INVALID_JSON') return sendJson(response, 400, { error: 'Invalid request body.' })
