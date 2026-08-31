@@ -35,6 +35,8 @@ export interface Place {
   accent: string
   menu?: MenuItem[]
   lodging?: LodgingInfo
+  phone?: string
+  placeUrl?: string
 }
 
 export interface TripRequest {

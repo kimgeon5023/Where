@@ -88,6 +88,8 @@ export default function Result() {
   const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number; south: number; north: number; west: number; east: number; zoom: number } | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
+  const [recommendationSeed] = useState(() => Math.random())
+  const [selectedPlaceId, setSelectedPlaceId] = useState<string | undefined>()
   const [route, setRoute] = useState<RouteResponse['data'] | null>(null)
   const [routeStatus, setRouteStatus] = useState('')
   const [routeRevision, setRouteRevision] = useState(0)
@@ -95,6 +97,7 @@ export default function Result() {
   const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -109,7 +112,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = viewport ?? userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), limit: 24, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000, south: viewport?.south, north: viewport?.north, west: viewport?.west, east: viewport?.east, zoom: viewport?.zoom }, controller.signal)
+      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), tags: category ? undefined : req.likes, includeLodging: !category && dayCount > 1, limit: 40, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000, south: viewport?.south, north: viewport?.north, west: viewport?.west, east: viewport?.east, zoom: viewport?.zoom }, controller.signal)
       .then(({ data }) => {
         setApiPlaces(data)
         if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
@@ -122,12 +125,11 @@ export default function Result() {
       .finally(() => setLoading(false))
     }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [req, category, userLocation, viewport, keyword, searchRevision])
+  }, [req, category, userLocation, viewport, keyword, searchRevision, dayCount])
 
-  const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
-  const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded) : [], [req, apiPlaces, excluded])
+  const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded, recommendationSeed) : [], [req, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
-  const itineraries = useMemo(() => buildItineraries(scored, dayCount), [scored, dayCount])
+  const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
   const rawCurrentCourse = itineraries[day] ?? []
   const currentCourse = customCourse.length > 0 && customCourse.length === rawCurrentCourse.length ? customCourse : rawCurrentCourse
 
@@ -154,7 +156,11 @@ export default function Result() {
   }, [itineraries, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
-  const recommended = sortedScored.slice(0, 8)
+  const recommended = useMemo(() => {
+    const selectedIds = itineraries.flatMap((stops) => stops.map((stop) => stop.place.id))
+    const selected = selectedIds.map((id) => scored.find((item) => item.place.id === id)).filter(Boolean) as ScoredPlace[]
+    return (selected.length ? selected : sortedScored).slice(0, 8)
+  }, [itineraries, scored, sortedScored])
   const recommendedPlaces = recommended.map((item) => item.place)
   const mapPlaces = recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
@@ -233,11 +239,11 @@ export default function Result() {
           {loading ? (
             <div className="place-list"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
           ) : (
-            <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={savedPlaces.some((place) => place.id === item.place.id)} onToggleSaved={() => setSavedPlaces((current) => toggleSavedPlace(current, item.place))} />)}</div>
+            <div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={savedPlaces.some((place) => place.id === item.place.id)} onToggleSaved={() => setSavedPlaces((current) => toggleSavedPlace(current, item.place))} />)}</div>
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} onViewportChange={handleViewportChange} /><div className="map-legend"><span><i className="legend-dot green" /> 실시간 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 중심과 반경을 백엔드에 전송해 주변 장소를 실시간으로 다시 검색합니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} onViewportChange={handleViewportChange} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 실시간 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 중심과 반경을 백엔드에 전송해 주변 장소를 실시간으로 다시 검색합니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
