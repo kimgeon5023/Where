@@ -85,7 +85,6 @@ export default function Result() {
   const [apiError, setApiError] = useState('')
   const [loading, setLoading] = useState(true)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
-  const [viewport, setViewport] = useState<{ lat: number; lng: number; radius: number; south: number; north: number; west: number; east: number; zoom: number } | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
   const [recommendationSeed] = useState(() => Math.random())
@@ -111,8 +110,8 @@ export default function Result() {
     const timer = window.setTimeout(() => {
       setApiError('')
       setLoading(true)
-      const origin = viewport ?? userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: viewport ? '' : req.start, category, companion: req.companion, q: keyword.trim(), tags: category ? undefined : req.likes, includeLodging: !category && dayCount > 1, limit: 40, lat: origin.lat, lng: origin.lng, radius: viewport?.radius ?? 8000, south: viewport?.south, north: viewport?.north, west: viewport?.west, east: viewport?.east, zoom: viewport?.zoom }, controller.signal)
+      const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
+      searchPlaces({ area: req.start, category, companion: req.companion, q: keyword.trim(), tags: category ? undefined : req.likes, includeLodging: !category && dayCount > 1, limit: 40, lat: origin.lat, lng: origin.lng, radius: 8000 }, controller.signal)
       .then(({ data }) => {
         setApiPlaces(data)
         if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
@@ -125,7 +124,7 @@ export default function Result() {
       .finally(() => setLoading(false))
     }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [req, category, userLocation, viewport, keyword, searchRevision, dayCount])
+  }, [req, category, userLocation, keyword, searchRevision, dayCount])
 
   const scored = useMemo(() => req ? recommend(apiPlaces, req, excluded, recommendationSeed) : [], [req, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
@@ -166,10 +165,6 @@ export default function Result() {
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
-  const handleViewportChange = useCallback((next: { lat: number; lng: number; radius: number; south: number; north: number; west: number; east: number; zoom: number }) => {
-    setViewport((current) => current && Math.abs(current.lat - next.lat) < 0.0002 && Math.abs(current.lng - next.lng) < 0.0002 && current.radius === next.radius ? current : next)
-  }, [])
-
   useEffect(() => {
     if (!req || coursePlaces.length === 0) { setRoute(null); return }
     if (req.transport !== 'car') {
@@ -180,13 +175,13 @@ export default function Result() {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setRouteStatus('실시간 차량 경로를 계산하는 중이에요.')
-      const origin = userLocation ?? viewport ?? { lat: coursePlaces[0].lat, lng: coursePlaces[0].lng }
+      const origin = userLocation ?? { lat: coursePlaces[0].lat, lng: coursePlaces[0].lng }
       searchRoute({ origin, stops: coursePlaces.slice(0, 5).map(({ lat, lng }) => ({ lat, lng })), transport: 'car' }, controller.signal)
         .then(({ data }) => { setRoute(data); setRouteStatus('') })
         .catch(() => { setRoute(null); setRouteStatus('실시간 차량 경로를 불러오지 못했어요.') })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [req, coursePlaces, userLocation, viewport, routeRevision])
+  }, [req, coursePlaces, userLocation, routeRevision])
 
   if (!req) {
     return <Navigate to="/" replace />
@@ -243,7 +238,7 @@ export default function Result() {
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} onViewportChange={handleViewportChange} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 실시간 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>지도를 움직여 새로 찾아보세요</strong><p>지도 중심과 반경을 백엔드에 전송해 주변 장소를 실시간으로 다시 검색합니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 메인 화면 조건 기반 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>선택한 지역과 취향으로 추천했어요</strong><p>지도 이동과 관계없이 메인 화면에서 선택한 지역·동행·취향을 유지합니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
