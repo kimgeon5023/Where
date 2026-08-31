@@ -105,6 +105,10 @@ a { color: inherit; text-decoration: none; }
 .area-dropdown { position: absolute; z-index: 10; top: calc(100% + 7px); left: 0; right: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; max-height: 230px; overflow-y: auto; padding: 10px; border: 1px solid #dce5de; border-radius: 12px; background: #fff; box-shadow: 0 14px 28px rgba(25, 43, 33, .16); }
 .area-dropdown button { min-height: 32px; padding: 5px 7px; border: 0; border-radius: 7px; color: #455047; background: #f3f6f3; font-size: 12px; font-weight: 600; cursor: pointer; }
 .area-dropdown button:hover, .area-dropdown button.selected { color: #fff; background: var(--green); }
+.area-suggestions { display: block; padding: 6px; }
+.area-suggestions button { display: block; width: 100%; min-height: 38px; padding: 9px 11px; text-align: left; background: transparent; }
+.area-suggestions button:hover, .area-suggestions button[aria-selected="true"] { color: #fff; background: var(--green); }
+.area-empty { margin: 0; padding: 10px 11px; color: var(--muted); font-size: 12px; }
 input[type="date"] { color: #626a65; }
 .date-row { display: flex; align-items: center; gap: 9px; }
 .date-row .input-wrap { flex: 1; }
@@ -397,6 +401,7 @@ input[type="date"] { color: #626a65; }
 :root.dark .ai-insight, :root.dark .side-tip { background: #1a241c; border-color: #2a3a2e; }
 :root.dark .map-card { background: #1a241c; border-color: #2a3a2e; }
 :root.dark .area-dropdown { background: #1a241c; border-color: #2a3a2e; }
+:root.dark .area-empty { color: #aab8ac; }
 :root.dark .profile-menu { background: #1a241c; border-color: #2a3a2e; }
 :root.dark .login-modal { background: #1a241c; }
 :root.dark .social-section > p, :root.dark .weather-widget-message, :root.dark .preference-row span, :root.dark .timeline-content span, :root.dark .side-tip p, :root.dark .ai-insight p { color: #7a8a7e; }
@@ -540,6 +545,11 @@ input[type="date"] { color: #626a65; }
 .planner-field > span svg { color: #2878f0; }
 .planner-field input { width: 100%; margin-top: 7px; padding: 0; border: 0; outline: 0; color: #172033; background: transparent; font: 700 15px 'Noto Sans KR', sans-serif; }
 .planner-field input[type="date"] { font-size: 13px; }
+.planner-area-picker { position: relative; }
+.planner-area-suggestions { position: absolute; z-index: 12; top: calc(100% + 9px); right: -10px; left: -10px; overflow: hidden; padding: 6px; border: 1px solid #dbe5f3; border-radius: 10px; background: #fff; box-shadow: 0 14px 28px rgba(33,64,113,.16); }
+.planner-area-suggestions button { display: block; width: 100%; min-height: 36px; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; color: #526078; text-align: left; font-size: 12px; font-weight: 700; }
+.planner-area-suggestions button:hover, .planner-area-suggestions button[aria-selected="true"] { background: #2878f0; color: #fff; }
+.planner-area-suggestions p { margin: 0; padding: 10px; color: #77849a; font-size: 12px; }
 .planner-guests { border-right: 0; }
 .compact-stepper { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
 .compact-stepper button { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; background: #edf4ff; color: #2878f0; }
