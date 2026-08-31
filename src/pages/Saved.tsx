@@ -12,7 +12,7 @@ export default function Saved() {
   return (
     <main className="app-shell result-shell">
       <header className="topbar result-topbar">
-        <Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link>
+        <Link to="/" className="brand"><span className="brand-mark">갈</span><span>갈래말래<span className="brand-dot">.</span></span></Link>
         <div className="result-top-actions"><span className="saved-count">♡ 저장한 코스 {savedPlaces.length}</span><Link to="/" className="back-button">새 코스 찾기 <span>↗</span></Link><AuthActions /></div>
       </header>
       <section className="result-intro"><div><div className="eyebrow">SAVED PLACES</div><h1>내가 찜한<br /><em>장소</em>예요.</h1><p>마음에 든 장소를 모아 언제든 다시 확인하세요.</p></div></section>

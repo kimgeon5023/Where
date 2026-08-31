@@ -69,7 +69,7 @@ export default function Settings() {
 
   const save = async () => {
     try {
-      await updateProfile({ name: name.trim() || user?.name || '어디갈까 여행자', profileImage: preview })
+      await updateProfile({ name: name.trim() || user?.name || '갈래말래 여행자', profileImage: preview })
       localStorage.setItem(preferencesKey(user.id), JSON.stringify(preferences))
       setMessage('Profile saved.')
     } catch (error) {
@@ -122,7 +122,7 @@ export default function Settings() {
   return (
     <main className="app-shell settings-shell">
       <header className="topbar settings-topbar">
-        <Link to="/" className="brand"><span className="brand-mark">W</span><span>어디갈까<span className="brand-dot">.</span></span></Link>
+        <Link to="/" className="brand"><span className="brand-mark">갈</span><span>갈래말래<span className="brand-dot">.</span></span></Link>
         <AuthActions />
       </header>
       <section className="settings-content">

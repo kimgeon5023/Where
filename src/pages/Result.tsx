@@ -190,7 +190,7 @@ export default function Result() {
   return (
     <main className="app-shell result-shell result-booking-shell">
       <header className="result-booking-header">
-        <Link to="/" className="booking-brand"><span className="booking-brand-mark">W</span><span>어디갈까</span></Link>
+        <Link to="/" className="booking-brand"><span className="booking-brand-mark">갈</span><span>갈래말래</span></Link>
         <nav className="result-breadcrumb" aria-label="현재 위치"><Link to="/">맞춤 코스</Link><span>/</span><strong>추천 결과</strong></nav>
         <div className="result-top-actions">
           <button type="button" className="ghost-button result-share-button" onClick={() => shareCourse(req, coursePlaces)}><Icon name="arrow" size={13} /> 공유</button>
@@ -240,7 +240,7 @@ export default function Result() {
         </div>
         <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} routePlaces={coursePlaces} routeCoordinates={route?.coordinates} center={center} userLocation={userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 메인 화면 조건 기반 추천 장소</span><span><i className="legend-line" /> {route ? '실시간 차량 경로' : '코스 연결선'}</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>선택한 지역과 취향으로 추천했어요</strong><p>지도 이동과 관계없이 메인 화면에서 선택한 지역·동행·취향을 유지합니다.</p></div></div></aside>
       </section>
-      <footer className="home-footer">© 2026 어디갈까 · 서울에서 발견하는 나만의 하루</footer>
+      <footer className="home-footer">© 2026 갈래말래 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
     </main>
   )
