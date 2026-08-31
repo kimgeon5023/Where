@@ -12,6 +12,7 @@ export interface User {
   profileImage: string
   sourceSite?: string
   createdAt: string
+  token?: string
 }
 
 export interface PasswordSignupInput {
@@ -40,6 +41,7 @@ const STORAGE_KEY = 'where-to-go-auth-user'
 function oauthCallbackUser() {
   const parameters = new URLSearchParams(window.location.hash.slice(1))
   const encodedUser = parameters.get('oauth_user')
+  const oauthToken = parameters.get('oauth_token')
   const oauthError = parameters.get('oauth_error')
   if (!encodedUser && !oauthError) return null
 
@@ -54,8 +56,10 @@ function oauthCallbackUser() {
     const binary = atob(base64)
     const user = JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)))) as User
     if (!user.id || user.provider !== 'google') throw new Error('INVALID_OAUTH_USER')
-    saveUser(user)
-    return user
+    if (!oauthToken) throw new Error('MISSING_OAUTH_TOKEN')
+    const authenticatedUser = { ...user, token: oauthToken }
+    saveUser(authenticatedUser)
+    return authenticatedUser
   } catch {
     window.alert('로그인 정보를 확인하지 못했습니다.')
     return null
@@ -97,9 +101,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, name, password }),
       })
-      const body = await response.json() as { user?: User; error?: string }
+      const body = await response.json() as { user?: User; token?: string; error?: string }
       if (!response.ok || !body.user) throw new Error(body.error || '회원가입을 처리하지 못했습니다.')
-      const nextUser = body.user
+      const nextUser = { ...body.user, token: body.token }
       setUser(nextUser)
       saveUser(nextUser)
       },
@@ -109,9 +113,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       })
-      const body = await response.json() as { user?: User; error?: string }
+      const body = await response.json() as { user?: User; token?: string; error?: string }
       if (!response.ok || !body.user) throw new Error(body.error || '로그인에 실패했습니다.')
-      const nextUser = body.user
+      const nextUser = { ...body.user, token: body.token }
       setUser(nextUser)
       saveUser(nextUser)
     },
