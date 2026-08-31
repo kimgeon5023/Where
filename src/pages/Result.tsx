@@ -46,6 +46,22 @@ function sortScored(items: ScoredPlace[], sort: SortKey): ScoredPlace[] {
   }
 }
 
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const r = (d: number) => d * Math.PI / 180
+  const s = Math.sin(r(b.lat - a.lat) / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(r(b.lng - a.lng) / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s))
+}
+function formatDistance(meters: number) {
+  if (meters < 1000) return `${Math.round(meters)}m`
+  return `${(meters / 1000).toFixed(1)}km`
+}
+function formatDuration(seconds: number) {
+  const m = Math.max(1, Math.round(seconds / 60))
+  if (m < 60) return `약 ${m}분`
+  const h = Math.floor(m / 60); const mm = m % 60
+  return mm ? `약 ${h}시간 ${mm}분` : `약 ${h}시간`
+}
+
 function SkeletonCard() {
   return (
     <div className="place-card" style={{ animation: 'pulse 1.5s ease-in-out infinite' }}>
@@ -172,6 +188,13 @@ export default function Result() {
   }, [itineraries, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
+  const estimatedPublic = useMemo(() => {
+    if (coursePlaces.length < 2) return null
+    let meters = 0
+    for (let i = 0; i < coursePlaces.length - 1; i++) meters += haversineKm(coursePlaces[i], coursePlaces[i + 1]) * 1000
+    const seconds = (meters / 1000) / 20 * 3600
+    return { distanceMeters: Math.round(meters), durationSeconds: Math.round(seconds) }
+  }, [coursePlaces])
   // Explore results are not capped at eight. Additional API pages are appended
   // through the “더보기” button below; every request remains limited to 20.
   const recommended = sortedScored
