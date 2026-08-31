@@ -90,9 +90,9 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onMouseDown={(event) => event.stopPropagation()}>
         <button type="button" className="modal-close" aria-label="로그인 창 닫기" onClick={onClose}><Icon name="close" size={18} /></button>
-        <span className="login-mark">W</span>
-        <span className="eyebrow">WELCOME TO WHERE TO GO</span>
-        <h2 id="login-title">{mode === 'social' ? <>여행 취향을<br /><em>저장해볼까요?</em></> : mode === 'login' ? <>기존 계정으로<br /><em>로그인해볼까요?</em></> : <>어디갈까에<br /><em>가입해볼까요?</em></>}</h2>
+        <span className="login-mark">갈</span>
+        <span className="eyebrow">WELCOME TO GALMAELLAE</span>
+        <h2 id="login-title">{mode === 'social' ? <>여행 취향을<br /><em>저장해볼까요?</em></> : mode === 'login' ? <>기존 계정으로<br /><em>로그인해볼까요?</em></> : <>갈래말래에<br /><em>가입해볼까요?</em></>}</h2>
         {mode === 'social' ? <>
           <p>사용하는 계정으로<br />간편하게 로그인하세요.</p>
           {error && <p className="signup-error">{error}</p>}

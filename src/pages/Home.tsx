@@ -89,7 +89,7 @@ export default function Home() {
 
   return <main className="app-shell booking-shell">
     <header className="booking-header">
-      <Link to="/" className="booking-brand" aria-label="어디갈까 홈"><span className="booking-brand-mark">W</span><span>어디갈까</span></Link>
+      <Link to="/" className="booking-brand" aria-label="갈래말래 홈"><span className="booking-brand-mark">갈</span><span>갈래말래</span></Link>
       <nav className="booking-nav" aria-label="주요 메뉴"><a href="#planner">맞춤 코스</a><a href="#popular">인기 테마</a><Link to="/saved">찜한 장소</Link><Link to="/friends">친구와 여행</Link></nav>
       <div className="booking-header-actions"><Link to="/saved" className="booking-saved-link"><Icon name="heart" size={15} /> 찜 {savedCount}</Link><AuthActions /></div>
     </header>
@@ -118,7 +118,7 @@ export default function Home() {
     </section>
 
     <section id="popular" className="booking-popular" aria-labelledby="popular-title"><div><p className="booking-section-kicker">CURATED FOR YOU</p><h2 id="popular-title">어떤 하루를<br /><em>꿈꾸고 있나요?</em></h2></div><div className="theme-card-grid"><button type="button" className="theme-card theme-cafe" onClick={() => { update('likes', ['cafe', 'photo']); update('companion', 'friends') }}><Icon name="cafe" size={25} /><span>여유로운 오후</span><strong>카페 투어</strong><small>감성 카페와 산책</small></button><button type="button" className="theme-card theme-food" onClick={() => { update('likes', ['foodie', 'shopping']); update('companion', 'friends') }}><Icon name="food" size={25} /><span>서울의 맛</span><strong>미식 탐험</strong><small>맛집부터 시장까지</small></button><button type="button" className="theme-card theme-nature" onClick={() => { update('likes', ['nature', 'photo', 'rest']); update('companion', 'alone') }}><Icon name="nature" size={25} /><span>도심 속 쉼</span><strong>초록 산책</strong><small>공원과 전망 명소</small></button></div></section>
-    <footer className="booking-footer"><span className="booking-brand-mark">W</span><p>나에게 꼭 맞는 서울의 하루를 찾아보세요.</p><span>© 2026 WHERE</span></footer>
+    <footer className="booking-footer"><span className="booking-brand-mark">갈</span><p>나에게 꼭 맞는 서울의 하루를 찾아보세요.</p><span>© 2026 갈래말래</span></footer>
     <BottomNav />
   </main>
 }
