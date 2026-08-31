@@ -161,8 +161,8 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
     markerRefs.current.forEach((marker) => marker.setMap(null))
     polylineRefs.current.forEach((line) => line.setMap(null))
     markerRefs.current = places.map((place, index) => createPlaceOverlay(kakao, map, place, index, place.id === selectedPlaceId, onPlaceSelect))
-    const route = (routeCoordinates.length > 1 ? routeCoordinates : routePlaces).map((place) => new kakao.maps.LatLng(place.lat, place.lng))
-    polylineRefs.current = route.length > 1 ? [new kakao.maps.Polyline({ map, path: route, strokeWeight: 5, strokeColor: '#2878f0', strokeOpacity: .85, strokeStyle: 'solid' })] : []
+    // Keep route data for itinerary ordering, but do not draw a visual path on the map.
+    polylineRefs.current = []
   }, [mapRevision, places, routeCoordinates, routePlaces, selectedPlaceId, onPlaceSelect])
 
   useEffect(() => {

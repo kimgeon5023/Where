@@ -22,7 +22,6 @@ function saveReview(placeId: string, review: Review) {
 
 export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void; onSelect?: (id: string) => void }) {
   const { place } = scored
-  const cost = place.category === 'lodging' && place.lodging ? Math.round(place.lodging.pricePerNight / place.lodging.capacity) : place.price
   const [reviews, setReviews] = useState(() => getReviews(place.id))
   const [reviewText, setReviewText] = useState('')
   const [reviewRating, setReviewRating] = useState(5)
@@ -48,9 +47,9 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
       <div className="place-body">
         <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div><div className="score-badge"><strong>{scored.score}</strong><small>추천점수</small></div></div>
         <p className="place-description">{place.description}</p>
-        <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating}</span><span><Icon name="clock" size={11} /> {place.durationMin}분</span><span>₩ {cost.toLocaleString()}~</span><span>{place.indoor ? '실내' : '야외'}</span></div>
+        <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating || '후기 없음'}</span><span>{place.indoor ? '실내' : '야외'}</span><span>가격 정보는 장소 상세에서 확인</span></div>
         <div className="reason-row">{scored.reasons.slice(0, 2).map((reason) => <span key={reason}>✓ {reason}</span>)}</div>
-        {place.lodging && <div className="detail-box lodging-detail"><strong>1박 {place.lodging.pricePerNight.toLocaleString()}원</strong><span>{place.lodging.capacity}인 · {place.lodging.parking ? '주차 가능' : '주차 불가'} · {place.lodging.bed}</span></div>}
+        {place.lodging && <div className="detail-box lodging-detail"><strong>숙박 장소</strong><span>가격 정보는 장소 상세에서 확인 · {place.lodging.capacity}인 · {place.lodging.parking ? '주차 가능' : '주차 정보 확인 필요'}</span></div>}
         {place.menu && <div className="detail-box menu-detail"><strong>대표 메뉴</strong><span>{place.menu.slice(0, 3).map((menu) => menu.name + ' ' + menu.price.toLocaleString() + '원').join('  ·  ')}</span></div>}
         {reviews.length > 0 && (
           <div style={{ marginTop: 13, padding: '10px 11px', borderRadius: 8, background: '#f4f8f5', border: '1px solid #e8ece7' }}>

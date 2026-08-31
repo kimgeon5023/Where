@@ -161,7 +161,7 @@ export default function Result() {
     return (selected.length ? selected : sortedScored).slice(0, 8)
   }, [itineraries, scored, sortedScored])
   const recommendedPlaces = recommended.map((item) => item.place)
-  const mapPlaces = recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces
+  const mapPlaces = (recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces).filter((place) => place.category !== 'lodging')
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
