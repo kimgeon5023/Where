@@ -50,6 +50,8 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       return
     }
     const controller = new AbortController()
+    // Never display the previous account's favorites while loading this account.
+    setFavorites([])
     setFavoritesLoading(true)
     getFavorites(user.token, controller.signal)
       .then((data) => setFavorites(data.map(favoriteToPlace)))
