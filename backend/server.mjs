@@ -1,8 +1,8 @@
 import { createServer } from 'node:http'
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, deletePlaceReview, deleteUser, initializeDatabase, listCourses, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateUserProfile, upsertGoogleUser } from './database.mjs'
+import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, deleteFavorite, deletePlaceReview, deleteUser, initializeDatabase, listCourses, listFavorites, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateUserProfile, upsertFavorite, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
@@ -27,7 +27,10 @@ const placesCache = new Map()
 const routesCache = new Map()
 const placesCacheMaxEntries = 250
 const routesCacheMaxEntries = 100
-const authSecret = process.env.AUTH_TOKEN_SECRET || randomBytes(32).toString('base64url')
+// Keep tokens valid across server restarts when a deployment has not yet set a
+// dedicated secret. DATABASE_URL is required and remains server-only; production
+// deployments should still provide AUTH_TOKEN_SECRET explicitly.
+const authSecret = process.env.AUTH_TOKEN_SECRET || createHash('sha256').update(process.env.DATABASE_URL || '').digest('base64url')
 const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
 const livePlaceMeta = {
   food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
@@ -50,6 +53,7 @@ const preferenceSearches = {
 const seoulDistrictCenters = {
   강남구: [37.5172, 127.0473], 강동구: [37.5301, 127.1238], 강북구: [37.6396, 127.0257], 강서구: [37.5509, 126.8495], 관악구: [37.4784, 126.9516], 광진구: [37.5385, 127.0823], 구로구: [37.4954, 126.8874], 금천구: [37.4569, 126.8955], 노원구: [37.6542, 127.0568], 도봉구: [37.6688, 127.0471], 동대문구: [37.5744, 127.0396], 동작구: [37.5124, 126.9393], 마포구: [37.5663, 126.9019], 서대문구: [37.5791, 126.9368], 서초구: [37.4837, 127.0324], 성동구: [37.5633, 127.0371], 성북구: [37.5894, 127.0167], 송파구: [37.5145, 127.1059], 양천구: [37.5170, 126.8664], 영등포구: [37.5264, 126.8962], 용산구: [37.5326, 126.9906], 은평구: [37.6027, 126.9291], 종로구: [37.5735, 126.9788], 중구: [37.5641, 126.9979], 중랑구: [37.6063, 127.0927],
 }
+const seoulDistrictNames = new Set(Object.keys(seoulDistrictCenters))
 
 function sendJson(response, status, body) {
   response.writeHead(status, {
@@ -185,6 +189,28 @@ function authenticatedUserId(request) {
   try { const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); return data.exp > Date.now() && typeof data.sub === 'string' ? data.sub : null } catch { return null }
 }
 
+function favoriteInput(input) {
+  const placeId = typeof input?.placeId === 'string' ? input.placeId.trim() : ''
+  const placeName = typeof input?.placeName === 'string' ? input.placeName.trim() : ''
+  if (!placeId || placeId.length > 255 || !placeName || placeName.length > 255) return { error: '장소 정보를 확인해 주세요.' }
+  const numberOrNull = (value) => Number.isFinite(Number(value)) ? Number(value) : null
+  const latitude = numberOrNull(input.latitude)
+  const longitude = numberOrNull(input.longitude)
+  if ((latitude !== null && (latitude < -90 || latitude > 90)) || (longitude !== null && (longitude < -180 || longitude > 180))) return { error: '장소 좌표를 확인해 주세요.' }
+  return {
+    value: {
+      placeId,
+      placeName,
+      address: typeof input.address === 'string' ? input.address.slice(0, 2_000) : '',
+      category: typeof input.category === 'string' ? input.category.slice(0, 100) : 'tour',
+      imageUrl: typeof input.imageUrl === 'string' ? input.imageUrl.slice(0, 4_000) : '',
+      latitude,
+      longitude,
+      placeData: input.place && typeof input.place === 'object' && !Array.isArray(input.place) ? input.place : {},
+    },
+  }
+}
+
 function kakaoPlaceToPlace(item, category, origin, tags) {
   const lat = Number(item.y); const lng = Number(item.x)
   const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
@@ -224,7 +250,7 @@ function requestedSearchProfiles(category, tags, includeLodging) {
 
 async function searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags, includeLodging) {
   if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
-  const selectedDistrict = /구$/.test(area)
+  const selectedDistrict = seoulDistrictNames.has(area)
   const searchKeyword = keyword
   const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
   const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
@@ -263,6 +289,9 @@ async function findPlaces(url) {
 
   if (category && !searchableCategories.has(category)) {
     return { error: 'category must be food, cafe, tour, photo, lodging, or activity' }
+  }
+  if (!seoulDistrictNames.has(area)) {
+    return { error: 'area must be one of Seoul\'s 25 districts' }
   }
 
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
@@ -408,6 +437,31 @@ createServer(async (request, response) => {
     if (!userId) return sendJson(response, 400, { error: 'userId is required' })
     const result = await listCourses({ userId, page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
     return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
+  }
+  if (request.method === 'GET' && url.pathname === '/api/favorites') {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
+    return sendJson(response, 200, { data: await listFavorites(userId) })
+  }
+  if (request.method === 'POST' && url.pathname === '/api/favorites') {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
+    try {
+      const validation = favoriteInput(await readJsonBody(request, 32_768))
+      if ('error' in validation) return sendJson(response, 400, validation)
+      return sendJson(response, 201, { data: await upsertFavorite({ userId, ...validation.value }) })
+    } catch (error) {
+      return sendJson(response, error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: '찜한 장소를 저장하지 못했습니다.' })
+    }
+  }
+  if (request.method === 'DELETE' && /^\/api\/favorites\/[^/]+$/.test(url.pathname)) {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
+    const placeId = decodeURIComponent(url.pathname.split('/').at(-1) || '').trim()
+    if (!placeId) return sendJson(response, 400, { error: '장소 정보를 확인해 주세요.' })
+    return await deleteFavorite({ userId, placeId })
+      ? sendJson(response, 200, { ok: true })
+      : sendJson(response, 404, { error: '찜한 장소를 찾을 수 없습니다.' })
   }
   if (request.method === 'GET' && url.pathname === '/api/reviews') {
     const result = await listReviews({ placeId: url.searchParams.get('placeId') || '', page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })

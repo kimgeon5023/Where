@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { searchPlaces, searchRoute, type RouteResponse } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
-import { getSavedPlaces, toggleSavedPlace } from '../lib/savedPlaces'
+import { useFavorites } from '../favorites/FavoritesContext'
 import type { Place, Tag, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
@@ -97,7 +97,7 @@ export default function Result() {
   const [route, setRoute] = useState<RouteResponse['data'] | null>(null)
   const [routeStatus, setRouteStatus] = useState('')
   const [routeRevision, setRouteRevision] = useState(0)
-  const [savedPlaces, setSavedPlaces] = useState(getSavedPlaces)
+  const { favorites, isFavorite, toggleFavorite } = useFavorites()
   const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
@@ -209,7 +209,7 @@ export default function Result() {
         <nav className="result-breadcrumb" aria-label="현재 위치"><Link to="/">맞춤 코스</Link><span>/</span><strong>추천 결과</strong></nav>
         <div className="result-top-actions">
           <button type="button" className="ghost-button result-share-button" onClick={() => shareCourse(req, coursePlaces)}><Icon name="arrow" size={13} /> 공유</button>
-          <Link to="/saved" className="saved-count">♡ 저장한 코스 {savedPlaces.length}</Link>
+          <Link to="/saved" className="saved-count">♡ 저장한 코스 {favorites.length}</Link>
           <Link to="/" className="back-button">조건 다시 설정</Link>
           <AuthActions />
         </div>
@@ -247,7 +247,7 @@ export default function Result() {
           {loading ? (
             <div className="place-list"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
           ) : (
-            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={savedPlaces.some((place) => place.id === item.place.id)} onToggleSaved={() => setSavedPlaces((current) => toggleSavedPlace(current, item.place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
+            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>

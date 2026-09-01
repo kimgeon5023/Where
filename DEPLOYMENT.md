@@ -39,6 +39,6 @@ For frontend work against the deployed API, keep `VITE_API_BASE_URL` set to the 
 ## Deployment ownership
 
 - Vercel: set `VITE_API_BASE_URL` for Production and Preview.
-- Render: configure `DATABASE_URL`, `FRONTEND_URL`, `API_BASE_URL`, OAuth credentials, and Kakao REST keys in the Render service dashboard.
+- Render: configure `DATABASE_URL`, `FRONTEND_URL`, `API_BASE_URL`, `AUTH_TOKEN_SECRET`, OAuth credentials, and Kakao REST keys in the Render service dashboard.
 
 All keys, database URLs, OAuth secrets, and `.env` files are intentionally excluded from Git. Ask the project owner for access or for values through a secure channel.

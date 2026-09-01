@@ -20,24 +20,11 @@ const database = new Pool({
   idleTimeoutMillis: 30_000,
 })
 
-// This is only seed data. Runtime searches always query PostgreSQL with a LIMIT.
-const seoulAreaNames = [
+// 서울특별시 자치구만 지역 검색·선택의 기준으로 사용한다.
+const seoulDistrictNames = [
   '강남구', '강동구', '강북구', '강서구', '관악구', '광진구', '구로구', '금천구', '노원구', '도봉구',
   '동대문구', '동작구', '마포구', '서대문구', '서초구', '성동구', '성북구', '송파구', '양천구', '영등포구',
   '용산구', '은평구', '종로구', '중구', '중랑구',
-  '가락동', '가산동', '가양동', '개포동', '고덕동', '공덕동', '공릉동', '광장동', '구의동', '구로동',
-  '금호동', '길동', '낙성대동', '난곡동', '남가좌동', '남영동', '내발산동', '노량진동', '논현동', '대림동',
-  '대방동', '대치동', '대학로', '당산동', '답십리동', '도곡동', '도림동', '동선동', '등촌동', '마곡동',
-  '마장동', '망원동', '면목동', '명동', '목동', '문래동', '미아동', '반포동', '방배동', '방이동',
-  '발산동', '보라매동', '보문동', '북가좌동', '불광동', '사당동', '삼성동', '상도동', '상봉동', '상수동',
-  '상암동', '서교동', '서빙고동', '석촌동', '성내동', '성수동', '성북동', '수유동', '수색동', '송리단길',
-  '송파동', '수서동', '수유동', '시청', '신길동', '신당동', '신대방동', '신림동', '신사동', '신촌동',
-  '쌍문동', '아현동', '아차산', '아현동', '안암동', '암사동', '압구정동', '약수동', '양재동', '양평동',
-  '여의도동', '역삼동', '연남동', '연신내', '염창동', '영등포동', '오금동', '옥수동', '왕십리', '용답동',
-  '용산역', '우이동', '월곡동', '이촌동', '이태원동', '인사동', '장안동', '장충동', '잠실동', '잠원동',
-  '전농동', '정릉동', '종각', '종로', '중계동', '중곡동', '중림동', '창동', '창신동', '천호동', '청담동',
-  '청량리동', '충정로', '한강진', '한남동', '합정동', '행당동', '혜화동', '홍대', '홍제동', '화곡동',
-  '회기동', '회현동', '흑석동', '서울숲', '북서울꿈의숲', '올림픽공원', '한강공원', '경복궁', '남산',
 ]
 
 function toIsoString(value) {
@@ -171,8 +158,25 @@ export async function initializeDatabase() {
     `INSERT INTO seoul_areas (name)
      SELECT DISTINCT unnest($1::text[])
      ON CONFLICT (name) DO NOTHING`,
-    [seoulAreaNames],
+    [seoulDistrictNames],
   )
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS favorites (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      place_id TEXT NOT NULL,
+      place_name VARCHAR(255) NOT NULL,
+      address TEXT NOT NULL DEFAULT '',
+      category VARCHAR(100) NOT NULL DEFAULT 'tour',
+      image_url TEXT NOT NULL DEFAULT '',
+      latitude DOUBLE PRECISION,
+      longitude DOUBLE PRECISION,
+      place_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user_id, place_id)
+    )
+  `)
+  await database.query(`CREATE INDEX IF NOT EXISTS favorites_user_created_idx ON favorites (user_id, created_at DESC)`)
   await database.query(`
     CREATE TABLE IF NOT EXISTS place_reviews (
       id UUID PRIMARY KEY,
@@ -203,11 +207,64 @@ export async function searchSeoulAreas(query, limit = 8) {
     `SELECT id, name
      FROM seoul_areas
      WHERE name ILIKE $1
+       AND name = ANY($4::text[])
      ORDER BY CASE WHEN name ILIKE $2 THEN 0 ELSE 1 END, char_length(name), name
      LIMIT $3`,
-    [`%${q}%`, `${q}%`, safeLimit],
+    [`%${q}%`, `${q}%`, safeLimit, seoulDistrictNames],
   )
   return result.rows
+}
+
+function toFavorite(row) {
+  return {
+    id: row.id,
+    placeId: row.place_id,
+    placeName: row.place_name,
+    address: row.address,
+    category: row.category,
+    imageUrl: row.image_url,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    place: row.place_data || {},
+    createdAt: toIsoString(row.created_at),
+  }
+}
+
+export async function listFavorites(userId) {
+  const result = await database.query(
+    `SELECT id, place_id, place_name, address, category, image_url, latitude, longitude, place_data, created_at
+     FROM favorites
+     WHERE user_id = $1
+     ORDER BY created_at DESC`,
+    [userId],
+  )
+  return result.rows.map(toFavorite)
+}
+
+export async function upsertFavorite({ userId, placeId, placeName, address, category, imageUrl, latitude, longitude, placeData }) {
+  const result = await database.query(
+    `INSERT INTO favorites (id, user_id, place_id, place_name, address, category, image_url, latitude, longitude, place_data)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+     ON CONFLICT (user_id, place_id) DO UPDATE SET
+       place_name = EXCLUDED.place_name,
+       address = EXCLUDED.address,
+       category = EXCLUDED.category,
+       image_url = EXCLUDED.image_url,
+       latitude = EXCLUDED.latitude,
+       longitude = EXCLUDED.longitude,
+       place_data = EXCLUDED.place_data
+     RETURNING id, place_id, place_name, address, category, image_url, latitude, longitude, place_data, created_at`,
+    [randomUUID(), userId, placeId, placeName, address, category, imageUrl, latitude, longitude, JSON.stringify(placeData)],
+  )
+  return toFavorite(result.rows[0])
+}
+
+export async function deleteFavorite({ userId, placeId }) {
+  const result = await database.query(
+    'DELETE FROM favorites WHERE user_id = $1 AND place_id = $2',
+    [userId, placeId],
+  )
+  return result.rowCount > 0
 }
 
 export async function listCourses({ userId, page, limit }) {
