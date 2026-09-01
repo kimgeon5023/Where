@@ -132,8 +132,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const body = await response.json() as { user?: User; error?: string }
       if (!response.ok || !body.user) throw new Error(body.error || 'Unable to update profile.')
-      setUser(body.user)
-      saveUser(body.user)
+      const nextUser = { ...body.user, token: user.token }
+      setUser(nextUser)
+      saveUser(nextUser)
     },
   }), [user])
 

@@ -9,7 +9,7 @@ const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 
 
 interface Review { id: string; user_id: string | null; user_name: string | null; content: string; rating: number; created_at: string }
 
-export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void; onSelect?: (id: string) => void }) {
+export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void | Promise<void>; onSelect?: (id: string) => void }) {
   const { place } = scored
   const { user } = useAuth()
   const [reviews, setReviews] = useState<Review[]>([])
@@ -17,6 +17,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
   const [reviewRating, setReviewRating] = useState(5)
   const [showReviewForm, setShowReviewForm] = useState(false)
   const [reviewError, setReviewError] = useState('')
+  const [favoriteError, setFavoriteError] = useState('')
 
   useEffect(() => { fetch(apiUrl(`/api/places/${encodeURIComponent(place.id)}/reviews?limit=20`)).then((response) => response.json()).then((body: { data?: Review[] }) => setReviews(body.data || [])).catch(() => setReviews([])) }, [place.id])
 
@@ -36,18 +37,30 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
     else setReviewError('후기를 삭제하지 못했습니다.')
   }
 
+  const toggleSaved = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    if (!user?.token) { setFavoriteError('찜 기능은 로그인 후 이용할 수 있습니다.'); return }
+    try {
+      await onToggleSaved?.()
+      setFavoriteError('')
+    } catch (error) {
+      setFavoriteError(error instanceof Error && error.message === 'AUTH_REQUIRED' ? '찜 기능은 로그인 후 이용할 수 있습니다.' : '찜 상태를 변경하지 못했습니다.')
+    }
+  }
+
   return (
     <article className="place-card" onClick={() => onSelect?.(place.id)} style={{ cursor: onSelect ? 'pointer' : undefined }}>
       <div className="place-image" style={{ background: 'linear-gradient(135deg, ' + place.accent + ', #202638)' }}>
         <img src={place.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} />
         <span className="place-number">{index}</span><span className="place-category"><Icon name={icons[place.category]} size={14} /> {labels[place.category]}</span>
-        <button type="button" className={'save-button' + (isSaved ? ' saved' : '')} aria-label={isSaved ? '찜 해제' : '찜하기'} aria-pressed={isSaved} onClick={onToggleSaved}><Icon name="heart" size={16} /></button>
+        <button type="button" className={'save-button' + (isSaved ? ' saved' : '')} aria-label={isSaved ? '찜 해제' : '찜하기'} aria-pressed={isSaved} onClick={toggleSaved}><Icon name="heart" size={16} /></button>
       </div>
       <div className="place-body">
         <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div><div className="score-badge"><strong>{scored.score}</strong><small>추천점수</small></div></div>
         <p className="place-description">{place.description}</p>
         <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating || '후기 없음'}</span><span>{place.indoor ? '실내' : '야외'}</span><span>가격 정보는 장소 상세에서 확인</span></div>
         <div className="reason-row">{scored.reasons.slice(0, 2).map((reason) => <span key={reason}>✓ {reason}</span>)}</div>
+        {favoriteError && <p style={{ margin: '8px 0 0', color: '#b34d4d', fontSize: 11 }}>{favoriteError}</p>}
         {place.lodging && <div className="detail-box lodging-detail"><strong>숙박 장소</strong><span>가격 정보는 장소 상세에서 확인 · {place.lodging.capacity}인 · {place.lodging.parking ? '주차 가능' : '주차 정보 확인 필요'}</span></div>}
         {place.menu && <div className="detail-box menu-detail"><strong>대표 메뉴</strong><span>{place.menu.slice(0, 3).map((menu) => menu.name + ' ' + menu.price.toLocaleString() + '원').join('  ·  ')}</span></div>}
         {reviews.length > 0 && (
