@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
 import { useFavorites } from '../favorites/FavoritesContext'
-import { searchSeoulAreas, type SeoulArea } from '../lib/areasApi'
-import { isSeoulDistrict } from '../lib/seoulDistricts'
+import { isSeoulDistrict, SEOUL_DISTRICTS } from '../lib/seoulDistricts'
 import type { Companion, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
@@ -39,25 +38,15 @@ export default function Home() {
   const [request, setRequest] = useState<TripRequest>(() => createInitialRequest(today))
   const [error, setError] = useState('')
   const [areaPickerOpen, setAreaPickerOpen] = useState(false)
-  const [areaSuggestions, setAreaSuggestions] = useState<SeoulArea[]>([])
-  const [areaSearching, setAreaSearching] = useState(false)
   const [selectedArea, setSelectedArea] = useState(false)
   const [areaQuery, setAreaQuery] = useState('')
   const { favorites } = useFavorites()
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const updateStartDate = (dateStart: string) => setRequest((current) => ({ ...current, dateStart, dateEnd: current.dateEnd < dateStart ? dateStart : current.dateEnd }))
 
-  useEffect(() => {
-    if (!areaPickerOpen || !areaQuery) { setAreaSuggestions([]); setAreaSearching(false); return undefined }
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      setAreaSearching(true)
-      searchSeoulAreas(areaQuery, controller.signal).then(setAreaSuggestions).catch((searchError: unknown) => {
-        if (!(searchError instanceof DOMException && searchError.name === 'AbortError')) setAreaSuggestions([])
-      }).finally(() => setAreaSearching(false))
-    }, 280)
-    return () => { window.clearTimeout(timer); controller.abort() }
-  }, [areaPickerOpen, areaQuery])
+  const areaSuggestions = areaQuery
+    ? SEOUL_DISTRICTS.filter((district) => district.includes(areaQuery))
+    : []
 
   const submit = () => {
     if (!isSeoulDistrict(request.start) || !selectedArea) { setError('서울특별시 25개 구 중 하나를 추천 목록에서 선택해 주세요.'); return }
@@ -80,7 +69,7 @@ export default function Home() {
     <section id="planner" className="booking-planner" aria-label="여행 코스 조건">
       <div className="planner-tabs"><button type="button" className="active"><Icon name="spark" size={16} /> 맞춤 코스 만들기</button><span>서울에서 즐기는 나만의 하루</span></div>
       <div className="planner-main-fields">
-        <label className="planner-field planner-destination"><span><Icon name="pin" size={18} /> 어디로 갈까요?</span><div className="planner-area-picker"><input value={areaQuery} onFocus={() => setAreaPickerOpen(Boolean(areaQuery))} onBlur={() => window.setTimeout(() => setAreaPickerOpen(false), 120)} onChange={(event) => { setAreaQuery(event.target.value); update('start', ''); setSelectedArea(false); setAreaPickerOpen(Boolean(event.target.value.trim())) }} onKeyDown={(event) => { if (event.key === 'Escape') setAreaPickerOpen(false) }} placeholder="서울의 구를 검색해주세요." autoComplete="off" aria-autocomplete="list" aria-controls="seoul-area-suggestions" aria-expanded={areaPickerOpen && Boolean(areaQuery)} />{areaPickerOpen && areaQuery && <div id="seoul-area-suggestions" className="planner-area-suggestions" role="listbox" aria-label="서울특별시 구 추천">{areaSearching ? <p>검색 중...</p> : areaSuggestions.length > 0 ? areaSuggestions.map((area) => <button type="button" key={area.id} role="option" aria-selected={request.start === area.name} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('start', area.name); setAreaQuery(area.name); setSelectedArea(true); setAreaPickerOpen(false) }}>{area.name}</button>) : <p>서울특별시 25개 구만 검색할 수 있습니다.</p>}</div>}</div></label>
+        <label className="planner-field planner-destination"><span><Icon name="pin" size={18} /> 어디로 갈까요?</span><div className="planner-area-picker"><input value={areaQuery} onFocus={() => setAreaPickerOpen(Boolean(areaQuery))} onBlur={() => window.setTimeout(() => setAreaPickerOpen(false), 120)} onChange={(event) => { setAreaQuery(event.target.value); update('start', ''); setSelectedArea(false); setAreaPickerOpen(Boolean(event.target.value.trim())) }} onKeyDown={(event) => { if (event.key === 'Escape') setAreaPickerOpen(false) }} placeholder="서울의 구를 검색해주세요." autoComplete="off" aria-autocomplete="list" aria-controls="seoul-area-suggestions" aria-expanded={areaPickerOpen && Boolean(areaQuery)} />{areaPickerOpen && areaQuery && <div id="seoul-area-suggestions" className="planner-area-suggestions" role="listbox" aria-label="서울특별시 구 추천">{areaSuggestions.length > 0 ? areaSuggestions.map((district) => <button type="button" key={district} role="option" aria-selected={request.start === district} onMouseDown={(event) => event.preventDefault()} onClick={() => { update('start', district); setAreaQuery(district); setSelectedArea(true); setAreaPickerOpen(false) }}>{district}</button>) : <p>서울특별시 25개 구만 검색할 수 있습니다.</p>}</div>}</div></label>
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 출발일</span><input type="date" min={today} value={request.dateStart} onChange={(event) => updateStartDate(event.target.value)} /></label>
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 도착일</span><input type="date" min={request.dateStart || today} value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></label>
         <button type="button" className="planner-search" onClick={submit}>코스 찾기 <Icon name="arrow" size={18} /></button>
