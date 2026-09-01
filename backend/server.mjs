@@ -290,7 +290,7 @@ async function findPlaces(url) {
   if (category && !searchableCategories.has(category)) {
     return { error: 'category must be food, cafe, tour, photo, lodging, or activity' }
   }
-  if (!seoulDistrictNames.has(area)) {
+  if (area && area !== '서울' && !seoulDistrictNames.has(area)) {
     return { error: 'area must be one of Seoul\'s 25 districts' }
   }
 
