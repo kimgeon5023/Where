@@ -7,17 +7,20 @@
     "dev": "vite",
     "dev:api": "node --env-file-if-exists=.env backend/server.mjs",
     "start": "node --env-file-if-exists=.env backend/server.mjs",
+    "migrate": "node --env-file-if-exists=.env backend/migrate.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "test": "node --test tests/*.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
     "@tailwindcss/vite": "^4.3.3",
-
     "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-
     "react-router-dom": "^7.18.2",
     "tailwindcss": "^4.3.3"
   },

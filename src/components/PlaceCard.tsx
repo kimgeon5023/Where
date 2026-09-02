@@ -7,9 +7,10 @@ import { apiUrl } from '../lib/api'
 const labels: Record<string, string> = { tour: '명소', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티', lodging: '숙소' }
 const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
 
-interface Review { id: string; user_id: string | null; user_name: string | null; content: string; rating: number; created_at: string }
+interface ReviewSummary { placeId: string; rating: number; reviewCount: number }
+interface Review { id: string; user_id: string | null; user_name: string | null; content: string; rating: number; created_at: string; summary?: ReviewSummary }
 
-export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void | Promise<void>; onSelect?: (id: string) => void }) {
+export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect, onReviewSummary }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void | Promise<void>; onSelect?: (id: string) => void; onReviewSummary?: (summary: ReviewSummary) => void }) {
   const { place } = scored
   const { user } = useAuth()
   const [reviews, setReviews] = useState<Review[]>([])
@@ -27,7 +28,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
     const response = await fetch(apiUrl(`/api/places/${encodeURIComponent(place.id)}/reviews`), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` }, body: JSON.stringify({ content: reviewText.trim(), rating: reviewRating }) })
     const body = await response.json() as { data?: Review; error?: string }
     if (!response.ok || !body.data) { setReviewError(body.error || '후기를 등록하지 못했습니다.'); return }
-    setReviews((prev) => [body.data!, ...prev]); setReviewText(''); setReviewRating(5); setReviewError(''); setShowReviewForm(false)
+    setReviews((prev) => [body.data!, ...prev]); if (body.data.summary) onReviewSummary?.(body.data.summary); setReviewText(''); setReviewRating(5); setReviewError(''); setShowReviewForm(false)
   }
 
   const deleteReview = async (reviewId: string) => {
@@ -66,7 +67,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
         {reviews.length > 0 && (
           <div style={{ marginTop: 13, padding: '10px 11px', borderRadius: 8, background: '#f4f8f5', border: '1px solid #e8ece7' }}>
             <strong style={{ fontSize: 11, color: '#4c6658' }}>방문자 후기 ({reviews.length}개)</strong>
-            {reviews.slice(-2).map((r, i) => (
+            {reviews.map((r, i) => (
               <div key={i} style={{ marginTop: 8, padding: '6px 0', borderTop: i > 0 ? '1px solid #e8ece7' : 'none' }}>
                 <span style={{ color: '#f4b448', fontSize: 11 }}>{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
                 <p style={{ margin: '3px 0 0', color: '#646b65', fontSize: 11, lineHeight: 1.5 }}>{r.content}</p>

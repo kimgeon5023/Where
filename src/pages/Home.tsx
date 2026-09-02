@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
+import MapView from '../components/MapView'
 import { useFavorites } from '../favorites/FavoritesContext'
 import { isSeoulDistrict, SEOUL_DISTRICTS } from '../lib/seoulDistricts'
+import { useTrips } from '../trips/TripsContext'
 import type { Companion, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
@@ -41,6 +43,7 @@ export default function Home() {
   const [selectedArea, setSelectedArea] = useState(false)
   const [areaQuery, setAreaQuery] = useState('')
   const { favorites } = useFavorites()
+  const { trips } = useTrips()
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
   const updateStartDate = (dateStart: string) => setRequest((current) => ({ ...current, dateStart, dateEnd: current.dateEnd < dateStart ? dateStart : current.dateEnd }))
 
@@ -52,15 +55,21 @@ export default function Home() {
     if (!isSeoulDistrict(request.start) || !selectedArea) { setError('서울특별시 25개 구 중 하나를 추천 목록에서 선택해 주세요.'); return }
     if (!request.dateStart || !request.dateEnd || request.dateEnd < request.dateStart) { setError('여행 날짜를 올바르게 선택해 주세요.'); return }
     setError('')
+    // Result 화면의 location state는 브라우저 새로고침 시 사라진다. 화면 전환 전에
+    // 같은 요청을 저장해 두어 결과 화면이 항상 완전한 조건으로 다시 검색하게 한다.
+    try { sessionStorage.setItem('where-result-request', JSON.stringify(request)) } catch { /* storage is optional */ }
     navigate('/result', { state: request })
   }
 
   return <main className="app-shell booking-shell">
     <header className="booking-header">
       <Link to="/" className="booking-brand" aria-label="갈래말래 홈"><span className="booking-brand-mark">갈</span><span>갈래말래</span></Link>
-      <nav className="booking-nav" aria-label="주요 메뉴"><a href="#planner">맞춤 코스</a><Link to="/saved">찜한 장소</Link><Link to="/friends">친구와 여행</Link></nav>
-      <div className="booking-header-actions"><Link to="/saved" className="booking-saved-link"><Icon name="heart" size={15} /> 찜 {favorites.length}</Link><AuthActions /></div>
+      <nav className="booking-nav" aria-label="주요 메뉴"><a href="#planner">맞춤 코스</a><Link to="/saved">찜한 장소</Link><Link to="/trips">저장한 코스</Link><Link to="/friends">친구와 여행</Link></nav>
+      <div className="booking-header-actions"><Link to="/saved" className="booking-saved-link"><Icon name="heart" size={15} /> 찜 {favorites.length}</Link><Link to="/trips" className="booking-saved-link"><Icon name="route" size={15} /> 코스 {trips.length}</Link><AuthActions /></div>
     </header>
+    <section className="mobile-home-map" aria-label="서울 지도">
+      <div className="mobile-home-map-card"><MapView places={[]} center={[37.5668, 126.978]} /></div>
+    </section>
     <section className="booking-hero" aria-labelledby="hero-title">
       <div className="booking-orbit booking-orbit-one" /><div className="booking-orbit booking-orbit-two" />
       <div className="booking-hero-copy"><p className="booking-kicker"><span /> SEOUL TRIP PLANNER</p><h1 id="hero-title">이번 주말,<br /><strong>어디로 갈까요?</strong></h1><p>지역과 일정, 동행만 고르면<br />결과 화면에서 원하는 테마의 서울 장소를 자유롭게 둘러볼 수 있어요.</p><div className="booking-hero-points"><span><Icon name="check" size={15} /> 서울 지역 검색</span><span><Icon name="check" size={15} /> 결과에서 세부 필터</span></div></div>

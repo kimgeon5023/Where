@@ -1,4 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { readFile, readdir } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 import pg from 'pg'
 
 const { Pool } = pg
@@ -37,6 +40,7 @@ function toUser(row) {
     name: row.name,
     email: row.email || `${row.username}@where-to-go.local`,
     provider: row.provider,
+    role: row.role || 'user',
     profileImage: row.profile_image,
     sourceSite: row.source_site,
     createdAt: toIsoString(row.created_at),
@@ -65,6 +69,7 @@ export async function initializeDatabase() {
       password_hash TEXT NOT NULL,
       password_salt TEXT NOT NULL,
       provider TEXT NOT NULL DEFAULT 'password',
+      role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
       profile_image TEXT NOT NULL DEFAULT '',
       source_site TEXT NOT NULL DEFAULT 'legacy',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -74,6 +79,9 @@ export async function initializeDatabase() {
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS source_site TEXT NOT NULL DEFAULT 'legacy'`)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_user_id TEXT`)
+  await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`)
+  await database.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check`)
+  await database.query(`ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('user', 'admin'))`)
   await database.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`)
   await database.query(`ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL`)
   await database.query(`ALTER TABLE users ALTER COLUMN password_salt DROP NOT NULL`)
@@ -188,7 +196,6 @@ export async function initializeDatabase() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `)
-  await database.query(`ALTER TABLE place_reviews ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT ''`)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_place_created_idx ON place_reviews (place_id, created_at DESC)`)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_created_idx ON place_reviews (created_at DESC)`)
 }
@@ -271,8 +278,8 @@ export async function listCourses({ userId, page, limit }) {
   const paging = paginationValues(page, limit)
   const [courses, total] = await Promise.all([
     database.query(
-      `SELECT t.id, t.title, t.start_area, t.date_start, t.date_end, t.companion, t.headcount,
-        t.budget_per_person, t.transport, t.weather, t.created_at, t.updated_at,
+      `SELECT t.id, t.title, t.description, t.start_area, t.date_start, t.date_end, t.companion, t.headcount,
+        t.budget_per_person, t.transport, t.weather, t.is_public, t.share_token, t.created_at, t.updated_at,
         COUNT(s.id)::INTEGER AS stop_count
        FROM trips t LEFT JOIN trip_stops s ON s.trip_id = t.id
        WHERE t.user_id = $1
@@ -283,7 +290,121 @@ export async function listCourses({ userId, page, limit }) {
     ),
     database.query(`SELECT COUNT(*)::INTEGER AS count FROM trips WHERE user_id = $1`, [userId]),
   ])
-  return { data: courses.rows, pagination: { ...paging, total: total.rows[0].count } }
+  return { data: courses.rows.map((row) => toTrip(row)), pagination: { ...paging, total: total.rows[0].count } }
+}
+
+export async function isAdminUser(userId) {
+  const result = await database.query("SELECT 1 FROM users WHERE id = $1 AND role = 'admin'", [userId])
+  return result.rowCount > 0
+}
+
+export async function ensureConfiguredAdmin() {
+  const username = process.env.ADMIN_USERNAME?.trim().toLowerCase() || ''
+  const password = process.env.ADMIN_PASSWORD || ''
+  if (!username && !password) return false
+  if (!/^[a-z0-9_]{3,20}$/.test(username) || password.length < 8) {
+    throw new Error('ADMIN_CREDENTIALS_INVALID')
+  }
+
+  const { salt, hash } = passwordRecord(password)
+  await database.query(
+    `INSERT INTO users (id, username, name, password_hash, password_salt, provider, role, profile_image, source_site)
+     VALUES ($1, $2, 'Administrator', $3, $4, 'password', 'admin', '', $5)
+     ON CONFLICT (username) DO UPDATE SET role = 'admin'`,
+    [randomUUID(), username, hash, salt, siteId],
+  )
+  return true
+}
+
+function tripShareToken() {
+  return randomBytes(18).toString('base64url')
+}
+
+function tripValues(input, shareToken) {
+  return [
+    input.title, input.description, input.startArea, input.dateStart || null, input.dateEnd || null,
+    input.companion, input.headcount, input.budgetPerPerson, input.transport, input.weather,
+    JSON.stringify(input.likes), JSON.stringify(input.dislikes), JSON.stringify(input.routeCoordinates),
+    input.isPublic, shareToken,
+  ]
+}
+
+async function insertTripStops(client, tripId, stops) {
+  for (const [index, stop] of stops.entries()) {
+    await client.query(
+      `INSERT INTO trip_stops (id, trip_id, stop_order, place_id, place_name, category, area, latitude, longitude, estimated_cost, duration_min, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
+      [randomUUID(), tripId, index, stop.placeId || null, stop.placeName, stop.category, stop.area, stop.latitude, stop.longitude, stop.estimatedCost, stop.durationMin, JSON.stringify(stop.metadata)],
+    )
+  }
+}
+
+function toTrip(row, stops = []) {
+  return {
+    id: row.id, title: row.title, description: row.description || '', startArea: row.start_area,
+    dateStart: row.date_start, dateEnd: row.date_end, companion: row.companion, headcount: row.headcount,
+    budgetPerPerson: row.budget_per_person, transport: row.transport, weather: row.weather,
+    likes: row.likes || [], dislikes: row.dislikes || [], routeCoordinates: row.route_coordinates || [],
+    isPublic: Boolean(row.is_public), shareToken: row.share_token || null,
+    createdAt: toIsoString(row.created_at), updatedAt: toIsoString(row.updated_at), stopCount: Number(row.stop_count ?? stops.length),
+    stops: stops.map((stop) => ({ id: stop.id, order: stop.stop_order, placeId: stop.place_id, placeName: stop.place_name, category: stop.category, area: stop.area, latitude: stop.latitude, longitude: stop.longitude, estimatedCost: stop.estimated_cost, durationMin: stop.duration_min, metadata: stop.metadata || {} })),
+  }
+}
+
+async function tripDetail(client, where, values) {
+  const trip = await client.query(`SELECT * FROM trips WHERE ${where}`, values)
+  if (!trip.rowCount) return null
+  const stops = await client.query('SELECT * FROM trip_stops WHERE trip_id = $1 ORDER BY stop_order', [trip.rows[0].id])
+  return toTrip(trip.rows[0], stops.rows)
+}
+
+export async function createTrip({ userId, input }) {
+  const client = await database.connect()
+  try {
+    await client.query('BEGIN')
+    const id = randomUUID()
+    const shareToken = input.isPublic ? tripShareToken() : null
+    const result = await client.query(
+      `INSERT INTO trips (id, user_id, title, description, start_area, date_start, date_end, companion, headcount, budget_per_person, transport, weather, likes, dislikes, route_coordinates, is_public, share_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
+       RETURNING *`, [id, userId, ...tripValues(input, shareToken)],
+    )
+    await insertTripStops(client, id, input.stops)
+    await client.query('COMMIT')
+    return toTrip(result.rows[0], input.stops.map((stop, order) => ({ ...stop, stop_order: order })))
+  } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+}
+
+export async function getTrip({ userId, tripId }) {
+  return tripDetail(database, 'id = $1 AND (user_id = $2 OR $3)', [tripId, userId, await isAdminUser(userId)])
+}
+
+export async function updateTrip({ userId, tripId, input }) {
+  const isAdmin = await isAdminUser(userId)
+  const client = await database.connect()
+  try {
+    await client.query('BEGIN')
+    const existing = await client.query('SELECT share_token FROM trips WHERE id = $1 AND (user_id = $2 OR $3) FOR UPDATE', [tripId, userId, isAdmin])
+    if (!existing.rowCount) { const error = new Error('TRIP_NOT_FOUND'); error.code = 'TRIP_NOT_FOUND'; throw error }
+    const shareToken = input.isPublic ? (existing.rows[0].share_token || tripShareToken()) : null
+    const result = await client.query(
+      `UPDATE trips SET title = $1, description = $2, start_area = $3, date_start = $4, date_end = $5, companion = $6, headcount = $7, budget_per_person = $8, transport = $9, weather = $10, likes = $11::jsonb, dislikes = $12::jsonb, route_coordinates = $13::jsonb, is_public = $14, share_token = $15, updated_at = NOW()
+       WHERE id = $16 AND (user_id = $17 OR $18) RETURNING *`, [...tripValues(input, shareToken), tripId, userId, isAdmin],
+    )
+    await client.query('DELETE FROM trip_stops WHERE trip_id = $1', [tripId])
+    await insertTripStops(client, tripId, input.stops)
+    await client.query('COMMIT')
+    return toTrip(result.rows[0], input.stops.map((stop, order) => ({ ...stop, stop_order: order })))
+  } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+}
+
+export async function deleteTrip({ userId, tripId }) {
+  const result = await database.query('DELETE FROM trips WHERE id = $1 AND (user_id = $2 OR $3)', [tripId, userId, await isAdminUser(userId)])
+  return result.rowCount > 0
+}
+
+export async function getPublicTrip(shareToken) {
+  return tripDetail(database, 'share_token = $1 AND is_public = TRUE', [shareToken])
 }
 
 export async function listReviews({ placeId, page, limit }) {
@@ -320,7 +441,7 @@ export async function createPlaceReview({ userId, placeId, rating, content, imag
 export async function deletePlaceReview({ reviewId, userId }) {
   const found = await database.query('SELECT user_id FROM place_reviews WHERE id = $1', [reviewId])
   if (!found.rowCount) { const error = new Error('REVIEW_NOT_FOUND'); error.code = 'REVIEW_NOT_FOUND'; throw error }
-  if (found.rows[0].user_id !== userId) { const error = new Error('REVIEW_FORBIDDEN'); error.code = 'REVIEW_FORBIDDEN'; throw error }
+  if (found.rows[0].user_id !== userId && !(await isAdminUser(userId))) { const error = new Error('REVIEW_FORBIDDEN'); error.code = 'REVIEW_FORBIDDEN'; throw error }
   await database.query('DELETE FROM place_reviews WHERE id = $1', [reviewId])
 }
 
@@ -333,7 +454,7 @@ export async function createPasswordUser({ username, name, password }) {
       `INSERT INTO users
         (id, username, name, password_hash, password_salt, provider, profile_image, source_site)
        VALUES ($1, $2, $3, $4, $5, 'password', '', $6)
-       RETURNING id, username, name, email, provider, profile_image, source_site, created_at`,
+       RETURNING id, username, name, email, provider, role, profile_image, source_site, created_at`,
       [id, username, name, hash, salt, siteId],
     )
     return toUser(result.rows[0])
@@ -349,7 +470,7 @@ export async function createPasswordUser({ username, name, password }) {
 
 export async function authenticatePasswordUser({ username, password }) {
   const result = await database.query(
-    `SELECT id, username, name, email, password_hash, password_salt, provider, profile_image, source_site, created_at, last_login_at
+    `SELECT id, username, name, email, password_hash, password_salt, provider, role, profile_image, source_site, created_at, last_login_at
      FROM users WHERE username = $1 AND provider = 'password'`,
     [username],
   )
@@ -361,7 +482,7 @@ export async function authenticatePasswordUser({ username, password }) {
   }
   const updated = await database.query(
     `UPDATE users SET last_login_at = NOW() WHERE id = $1
-     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+     RETURNING id, username, name, email, provider, role, profile_image, source_site, created_at, last_login_at`,
     [user.id],
   )
   return toUser(updated.rows[0])
@@ -369,7 +490,7 @@ export async function authenticatePasswordUser({ username, password }) {
 
 export async function changePassword({ userId, currentPassword, newPassword }) {
   const result = await database.query(
-    `SELECT id, username, name, email, password_hash, password_salt, provider, profile_image, source_site, created_at, last_login_at
+    `SELECT id, username, name, email, password_hash, password_salt, provider, role, profile_image, source_site, created_at, last_login_at
      FROM users WHERE id = $1`,
     [userId],
   )
@@ -392,7 +513,7 @@ export async function changePassword({ userId, currentPassword, newPassword }) {
   const { salt, hash } = passwordRecord(newPassword)
   const updated = await database.query(
     `UPDATE users SET password_hash = $1, password_salt = $2 WHERE id = $3
-     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+     RETURNING id, username, name, email, provider, role, profile_image, source_site, created_at, last_login_at`,
     [hash, salt, userId],
   )
   return toUser(updated.rows[0])
@@ -401,7 +522,7 @@ export async function changePassword({ userId, currentPassword, newPassword }) {
 export async function updateUserProfile({ userId, name, profileImage }) {
   const result = await database.query(
     `UPDATE users SET name = $1, profile_image = $2 WHERE id = $3
-     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+     RETURNING id, username, name, email, provider, role, profile_image, source_site, created_at, last_login_at`,
     [name, profileImage, userId],
   )
   if (!result.rowCount) {
@@ -438,7 +559,7 @@ export async function upsertGoogleUser({ providerUserId, name, email, profileIma
        email = EXCLUDED.email,
        profile_image = EXCLUDED.profile_image,
        last_login_at = NOW()
-     RETURNING id, username, name, email, provider, profile_image, source_site, created_at, last_login_at`,
+     RETURNING id, username, name, email, provider, role, profile_image, source_site, created_at, last_login_at`,
     [
       randomUUID(),
       username,
@@ -455,7 +576,7 @@ export async function upsertGoogleUser({ providerUserId, name, email, profileIma
 
 export async function listUsers() {
   const result = await database.query(
-    `SELECT id, name, username, email, provider, provider_user_id, profile_image, source_site, created_at, last_login_at
+    `SELECT id, name, username, email, provider, role, provider_user_id, profile_image, source_site, created_at, last_login_at
      FROM users
      ORDER BY created_at DESC`,
   )
@@ -464,16 +585,16 @@ export async function listUsers() {
 
 export async function listOtherUsers(userId) {
   const result = await database.query(
-    `SELECT id, name, username, email, provider, profile_image, source_site, created_at, last_login_at
+    `SELECT id, name, username, provider, profile_image
      FROM users WHERE id <> $1 ORDER BY created_at DESC`,
     [userId],
   )
-  return result.rows.map((row) => ({ ...toUser(row), username: row.username }))
+  return result.rows.map((row) => ({ id: row.id, name: row.name, username: row.username, provider: row.provider, profileImage: row.profile_image || '' }))
 }
 
 export async function listFriends(userId) {
   const result = await database.query(
-    `SELECT u.id, u.name, u.username, u.email, u.provider, u.profile_image, u.source_site, u.created_at, u.last_login_at,
+    `SELECT u.id, u.name, u.username, u.provider, u.profile_image,
       COALESCE(array_remove(array_agg(DISTINCT rr.relationship_type) FILTER (WHERE rr.status = 'accepted' AND (rr.sender_id = $1 OR rr.recipient_id = $1)), NULL), '{}') AS relationships
      FROM friendships f
      JOIN users u ON u.id = f.friend_id
@@ -484,7 +605,7 @@ export async function listFriends(userId) {
      ORDER BY u.name`,
     [userId],
   )
-  return result.rows.map((row) => ({ ...toUser(row), username: row.username, relationships: row.relationships || [] }))
+  return result.rows.map((row) => ({ id: row.id, name: row.name, username: row.username, provider: row.provider, profileImage: row.profile_image || '', relationships: row.relationships || [] }))
 }
 
 export async function addFriend(userId, friendId) {
@@ -559,4 +680,32 @@ export async function respondToRelationshipRequest(userId, requestId, accepted) 
 
 export async function closeDatabase() {
   await database.end()
+}
+
+export async function getPlaceReviewSummaries(placeIds) {
+  const ids = [...new Set(placeIds.filter((id) => typeof id === 'string' && id))]
+  if (!ids.length) return []
+  const result = await database.query(
+    `SELECT place_id, ROUND(AVG(rating)::numeric, 1)::double precision AS rating, COUNT(*)::INTEGER AS review_count
+     FROM place_reviews WHERE place_id = ANY($1::text[]) GROUP BY place_id`,
+    [ids],
+  )
+  return result.rows.map((row) => ({ placeId: row.place_id, rating: row.rating, reviewCount: row.review_count }))
+}
+
+export async function runMigrations() {
+  const directory = join(dirname(fileURLToPath(import.meta.url)), '..', 'database', 'migrations')
+  await database.query(`CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`)
+  const files = (await readdir(directory)).filter((file) => file.endsWith('.sql')).sort()
+  for (const file of files) {
+    const applied = await database.query('SELECT 1 FROM schema_migrations WHERE name = $1', [file])
+    if (applied.rowCount) continue
+    const client = await database.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query(await readFile(join(directory, file), 'utf8'))
+      await client.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file])
+      await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+  }
 }

@@ -90,8 +90,8 @@ export default function Settings() {
     try {
       const response = await fetch(apiUrl('/api/auth/password'), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, currentPassword, newPassword }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token || ''}` },
+        body: JSON.stringify({ currentPassword, newPassword }),
       })
       if (response.ok) {
         setPasswordMessage('비밀번호가 변경되었어요.')
@@ -108,7 +108,7 @@ export default function Settings() {
   const deleteAccount = async () => {
     if (!deleteConfirm) { setDeleteConfirm(true); return }
     try {
-      const response = await fetch(apiUrl(`/api/auth/users/${user.id}`), { method: 'DELETE' })
+      const response = await fetch(apiUrl('/api/auth/me'), { method: 'DELETE', headers: { Authorization: `Bearer ${user.token || ''}` } })
       if (response.ok) {
         signOut()
       } else {

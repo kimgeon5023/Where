@@ -76,14 +76,15 @@ const categoryMarker = {
   tour: { color: '#2878f0', path: '<path d="M12 21V10" /><path d="M12 15c-4 0-6-2-6-6 4 0 6 2 6 6ZM12 13c0-4 2-6 6-6 0 4-2 6-6 6Z" />' },
 } as const
 
-function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, index: number, selected: boolean, onSelect?: (id: string) => void) {
+function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, topRank: number | undefined, selected: boolean, onSelect?: (id: string) => void) {
   const style = categoryMarker[place.category as keyof typeof categoryMarker] || categoryMarker.tour
   const content = document.createElement('button')
   content.type = 'button'
   content.className = 'map-category-marker' + (selected ? ' selected' : '')
   content.style.setProperty('--marker-color', style.color)
-  content.setAttribute('aria-label', `${place.name} 카카오맵에서 보기`)
-  content.title = `${place.name} 카카오맵에서 보기`
+  const rankLabel = topRank ? `추천 TOP ${topRank}` : '추천 장소'
+  content.setAttribute('aria-label', `${place.name}, ${rankLabel}, 카카오맵에서 보기`)
+  content.title = `${place.name} · ${rankLabel}`
   content.addEventListener('click', () => {
     onSelect?.(place.id)
     // Kakao keyword results provide a canonical place page. The fallback still
@@ -91,7 +92,7 @@ function createPlaceOverlay(kakao: KakaoNamespace, map: KakaoMap, place: Place, 
     const destination = place.placeUrl || `https://map.kakao.com/?q=${encodeURIComponent(place.name)}`
     window.open(destination, '_blank', 'noopener,noreferrer')
   })
-  content.innerHTML = `<span>${index + 1}</span><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${style.path}</svg>`
+  content.innerHTML = `${topRank ? `<span class="map-top-rank">TOP ${topRank}</span>` : ''}<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${style.path}</svg>`
   return new kakao.maps.CustomOverlay({ map, position: new kakao.maps.LatLng(place.lat, place.lng), content, yAnchor: 1 })
 }
 
@@ -166,7 +167,9 @@ export default function MapView({ places, center, routePlaces = places, routeCoo
     if (!map || !kakao || mapRevision === 0) return
     markerRefs.current.forEach((marker) => marker.setMap(null))
     polylineRefs.current.forEach((line) => line.setMap(null))
-    markerRefs.current = places.map((place, index) => createPlaceOverlay(kakao, map, place, index, place.id === selectedPlaceId, onPlaceSelect))
+    // TOP badges are based on averages from reviews written in this service.
+    const topRanks = new Map(places.map((place, index) => ({ place, index })).filter(({ place }) => (place.reviewCount || 0) > 0).sort((a, b) => b.place.rating - a.place.rating || (b.place.reviewCount || 0) - (a.place.reviewCount || 0) || a.index - b.index).slice(0, 3).map(({ place }, index) => [place.id, index + 1]))
+    markerRefs.current = places.map((place) => createPlaceOverlay(kakao, map, place, topRanks.get(place.id), place.id === selectedPlaceId, onPlaceSelect))
     // Keep route data for itinerary ordering, but do not draw a visual path on the map.
     polylineRefs.current = []
   }, [mapRevision, places, routeCoordinates, routePlaces, selectedPlaceId, onPlaceSelect])

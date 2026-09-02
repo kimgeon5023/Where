@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { searchPlaces, searchRoute, type RouteResponse } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
 import { useFavorites } from '../favorites/FavoritesContext'
@@ -9,6 +9,36 @@ import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
+import { useAuth } from '../auth/AuthContext'
+import { createTrip, toTripInput, updateTrip, type Trip } from '../lib/tripsApi'
+import { useTrips } from '../trips/TripsContext'
+import { isSeoulDistrict } from '../lib/seoulDistricts'
+
+const RESULT_REQUEST_STORAGE_KEY = 'where-result-request'
+
+function isTripRequest(value: unknown): value is TripRequest {
+  if (!value || typeof value !== 'object') return false
+  const request = value as Partial<TripRequest>
+  return isSeoulDistrict(request.start ?? '')
+    && typeof request.dateStart === 'string' && Boolean(request.dateStart)
+    && typeof request.dateEnd === 'string' && Boolean(request.dateEnd)
+    && ['friends', 'couple', 'family', 'alone'].includes(request.companion ?? '')
+    && typeof request.headcount === 'number'
+    && typeof request.budgetPerPerson === 'number'
+    && ['public', 'car'].includes(request.transport ?? '')
+    && Array.isArray(request.likes) && Array.isArray(request.dislikes)
+    && ['sunny', 'cloudy', 'rain'].includes(request.weather ?? '')
+}
+
+function readStoredTripRequest(): TripRequest | null {
+  try {
+    const stored = sessionStorage.getItem(RESULT_REQUEST_STORAGE_KEY)
+    const parsed: unknown = stored ? JSON.parse(stored) : null
+    return isTripRequest(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
 const weatherLabels: Record<TripRequest['weather'], { icon: IconName; label: string; temp: string; rain: string }> = { sunny: { icon: 'sun', label: '맑음', temp: '27°', rain: '강수확률 10%' }, cloudy: { icon: 'cloud', label: '구름 조금', temp: '25°', rain: '강수확률 20%' }, rain: { icon: 'rain', label: '비', temp: '22°', rain: '강수확률 70%' } }
@@ -77,7 +107,11 @@ function shareCourse(req: TripRequest, places: Place[]) {
 
 export default function Result() {
   const location = useLocation()
-  const req = location.state as TripRequest | null
+  // Keep the restored request in React state. Parsing sessionStorage during every
+  // render creates a new object and makes the place-search effect run repeatedly.
+  const [req, setReq] = useState<TripRequest | null>(() => {
+    return isTripRequest(location.state) ? location.state : readStoredTripRequest()
+  })
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
   const [selectedTags, setSelectedTags] = useState<Tag[]>([])
@@ -98,10 +132,21 @@ export default function Result() {
   const [routeStatus, setRouteStatus] = useState('')
   const [routeRevision, setRouteRevision] = useState(0)
   const { favorites, isFavorite, toggleFavorite } = useFavorites()
-  const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
+  const { user } = useAuth()
+  const { trips, refreshTrips } = useTrips()
+  const [tripActionBusy, setTripActionBusy] = useState(false)
+  const [savedTrip, setSavedTrip] = useState<Trip | null>(null)
+  const [tripNotice, setTripNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [editedDays, setEditedDays] = useState<Record<number, ItineraryStop[]>>({})
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
+
+  useEffect(() => {
+    if (!isTripRequest(location.state)) return
+    try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(location.state)) } catch { /* storage is optional */ }
+    setReq(location.state)
+  }, [location.state])
 
   // Budget only changes the local ranking, so typing never causes place API calls.
   // The short debounce prevents recalculating the complete list for every digit.
@@ -112,6 +157,7 @@ export default function Result() {
     }, 300)
     return () => window.clearTimeout(timer)
   }, [budgetInput])
+  useEffect(() => { if (!tripNotice) return; const timer = window.setTimeout(() => setTripNotice(null), 3500); return () => window.clearTimeout(timer) }, [tripNotice])
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -120,6 +166,7 @@ export default function Result() {
   }, [])
 
   useEffect(() => {
+    // Do not call Kakao until a complete, validated request has been restored.
     if (!req) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
@@ -135,7 +182,10 @@ export default function Result() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         setApiPlaces([])
-        setApiError('카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
+        setHasMore(false)
+        setApiError(error instanceof Error && error.message
+          ? error.message
+          : '카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
       })
       .finally(() => setLoading(false))
     }, 300)
@@ -147,7 +197,7 @@ export default function Result() {
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
   const rawCurrentCourse = itineraries[day] ?? []
-  const currentCourse = customCourse.length > 0 && customCourse.length === rawCurrentCourse.length ? customCourse : rawCurrentCourse
+  const currentCourse = editedDays[day] ?? rawCurrentCourse
 
   const handleDragStart = useCallback((index: number) => { setDragIndex(index) }, [])
   const handleDragOver = useCallback((e: React.DragEvent, index: number) => { e.preventDefault(); setDragOverIndex(index) }, [])
@@ -156,12 +206,10 @@ export default function Result() {
     const updated = [...rawCurrentCourse]
     const [moved] = updated.splice(dragIndex, 1)
     updated.splice(index, 0, moved)
-    setCustomCourse(updated)
+    setEditedDays((current) => ({ ...current, [day]: updated }))
     setDragIndex(null)
     setDragOverIndex(null)
-  }, [dragIndex, rawCurrentCourse])
-
-  useEffect(() => { setCustomCourse([]) }, [day])
+  }, [dragIndex, rawCurrentCourse, day])
   const allCourse = useMemo(() => {
     const seen = new Set<string>()
     return itineraries.flat().filter((stop) => {
@@ -172,6 +220,26 @@ export default function Result() {
   }, [itineraries, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
+  const persistedCourseDays = useMemo(() => itineraries.map((itinerary, index) => (editedDays[index] ?? itinerary).map((stop) => stop.place)), [itineraries, editedDays])
+  const saveCourse = useCallback(async (isPublic: boolean) => {
+    if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
+    if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소가 없습니다.' }); return }
+    const title = savedTrip?.title || window.prompt('코스 이름을 입력해주세요.', `${req.start} 여행 코스`)
+    if (!title?.trim()) return
+    setTripActionBusy(true)
+    try {
+      const input = toTripInput(req, persistedCourseDays, title.trim(), isPublic)
+      const trip = savedTrip ? await updateTrip(savedTrip.id, input, user.token) : await createTrip(input, user.token)
+      setSavedTrip(trip)
+      await refreshTrips()
+      if (isPublic && trip.shareToken) {
+        const shareUrl = `${window.location.origin}/share/trips/${trip.shareToken}`
+        if (navigator.clipboard) await navigator.clipboard.writeText(shareUrl)
+        else { shareCourse(req, persistedCourseDays.flat()); window.prompt('공유 링크를 복사해주세요.', shareUrl) }
+        setTripNotice({ kind: 'success', text: '공개 코스를 저장하고 공유 링크를 복사했습니다.' })
+      } else setTripNotice({ kind: 'success', text: '내 코스에 저장했습니다.' })
+    } catch (error) { setTripNotice({ kind: 'error', text: error instanceof Error ? error.message : '코스를 저장하지 못했습니다.' }) } finally { setTripActionBusy(false) }
+  }, [req, user, persistedCourseDays, savedTrip, refreshTrips])
   // Explore results are not capped at eight. Additional API pages are appended
   // through the “더보기” button below; every request remains limited to 20.
   const recommended = sortedScored
@@ -199,17 +267,20 @@ export default function Result() {
   }, [req, coursePlaces, userLocation, routeRevision])
 
   if (!req) {
-    return <Navigate to="/" replace />
+    return <main className="app-shell result-shell"><section className="search-feedback form-error" role="alert"><span>추천 조건을 복원하지 못했습니다. 지역과 여행 조건을 다시 선택해 주세요.</span><Link to="/" className="ghost-button">조건 설정으로 이동</Link></section></main>
   }
 
   return (
     <main className="app-shell result-shell result-booking-shell">
+      {tripNotice && <div className={`trip-toast ${tripNotice.kind}`} role="status" aria-live="polite">{tripNotice.text}</div>}
       <header className="result-booking-header">
         <Link to="/" className="booking-brand"><span className="booking-brand-mark">갈</span><span>갈래말래</span></Link>
         <nav className="result-breadcrumb" aria-label="현재 위치"><Link to="/">맞춤 코스</Link><span>/</span><strong>추천 결과</strong></nav>
         <div className="result-top-actions">
-          <button type="button" className="ghost-button result-share-button" onClick={() => shareCourse(req, coursePlaces)}><Icon name="arrow" size={13} /> 공유</button>
-          <Link to="/saved" className="saved-count">♡ 저장한 코스 {favorites.length}</Link>
+          <button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(true)}><Icon name="arrow" size={13} /> 공유</button>
+          <button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(false)}>내 코스 저장</button>
+          <Link to="/saved" className="saved-count">♡ 찜한 장소 {favorites.length}</Link>
+          <Link to="/trips" className="saved-count">내 코스 {trips.length}</Link>
           <Link to="/" className="back-button">조건 다시 설정</Link>
           <AuthActions />
         </div>
@@ -247,11 +318,11 @@ export default function Result() {
           {loading ? (
             <div className="place-list"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
           ) : (
-            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
+            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} onReviewSummary={({ placeId, rating, reviewCount }) => setApiPlaces((current) => current.map((place) => place.id === placeId ? { ...place, rating, reviewCount } : place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 현재 필터에 맞는 장소</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 서비스 후기 평균 TOP 1~3</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 갈래말래 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />

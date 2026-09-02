@@ -37,6 +37,7 @@ interface AuthContextValue {
 }
 
 const STORAGE_KEY = 'where-to-go-auth-user'
+const OAUTH_RETURN_KEY = 'where-oauth-return'
 
 function oauthCallbackUser() {
   const parameters = new URLSearchParams(window.location.hash.slice(1))
@@ -45,7 +46,18 @@ function oauthCallbackUser() {
   const oauthError = parameters.get('oauth_error')
   if (!encodedUser && !oauthError) return null
 
-  window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+  const fallbackPath = `${window.location.pathname}${window.location.search}`
+  let returnPath = fallbackPath
+  let returnState: unknown = null
+  try {
+    const saved = sessionStorage.getItem(OAUTH_RETURN_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved) as { path?: string; state?: unknown }
+      if (typeof parsed.path === 'string' && parsed.path.startsWith('/')) { returnPath = parsed.path; returnState = parsed.state ?? null }
+      sessionStorage.removeItem(OAUTH_RETURN_KEY)
+    }
+  } catch { sessionStorage.removeItem(OAUTH_RETURN_KEY) }
+  window.history.replaceState(returnState, '', returnPath)
   if (oauthError) {
     window.alert(oauthError)
     return null
@@ -125,9 +137,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     updateProfile: async (patch) => {
       if (!user) throw new Error('Please sign in before updating your profile.')
-      const response = await fetch(apiUrl(`/api/auth/users/${user.id}`), {
+      const response = await fetch(apiUrl('/api/auth/me'), {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token || ''}` },
         body: JSON.stringify(patch),
       })
       const body = await response.json() as { user?: User; error?: string }

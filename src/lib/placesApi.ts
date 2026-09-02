@@ -42,6 +42,8 @@ export async function searchPlaces(params: PlaceSearchParams, signal?: AbortSign
   const previous = cached(searchCache, key)
   if (previous) return previous
   const response = await fetch(apiUrl(`/api/places?${query}`), { signal })
+  const preview = await response.clone().json().catch(() => null) as { data?: Place[]; error?: string } | null
+  if (!response.ok || !Array.isArray(preview?.data)) throw new Error(preview?.error || '카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
   if (!response.ok) throw new Error('장소 검색 API에 연결하지 못했습니다.')
   return remember(searchCache, key, await response.json() as PlacesResponse, searchCacheMaxEntries)
 }

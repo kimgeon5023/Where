@@ -35,7 +35,10 @@ export function recommend(places: Place[], req: TripRequest, excludedIds: string
     const travel = place.distanceKm === undefined ? 6 : Math.max(1, Math.round((maxDistance - place.distanceKm) * 1.4))
     const detail = [{ label: '취향 일치', max: 28, value: taste }, { label: '동행 적합', max: 18, value: group }, { label: '여행 스타일', max: 14, value: style }, { label: '예산 적합', max: 18, value: budget }, { label: '날씨 적합', max: 18, value: weather }, { label: '이동 편의', max: 18, value: travel }]
     const reasons = [...(liked ? ['선택한 취향과 잘 맞아요.'] : []), ...(companionStyle[req.companion].includes(place.category) ? ['동행 유형에 어울리는 장소예요.'] : []), ...(place.distanceKm !== undefined ? [`출발 기준 ${place.distanceKm.toFixed(1)}km 거리예요.`] : [])]
-    return { place, score: 0, fitScore: detail.reduce((sum, item) => sum + item.value, 0) + jitter(place.id, seed), detail, reasons }
+    // Public score reflects reviews written in this service. The private fitScore
+    // remains responsible for personalized recommendation ordering.
+    const score = place.reviewCount ? Math.round(place.rating * 20) : 0
+    return { place, score, fitScore: detail.reduce((sum, item) => sum + item.value, 0) + jitter(place.id, seed), detail, reasons }
   }).sort((a, b) => b.fitScore - a.fitScore)
 }
 

@@ -1,7 +1,7 @@
 import { apiUrl } from './api'
 
 export type RelationshipType = 'friend' | 'couple' | 'family'
-export interface SocialUser { id: string; name: string; email: string; profileImage: string; relationships?: RelationshipType[] }
+export interface SocialUser { id: string; name: string; email?: string; profileImage: string; relationships?: RelationshipType[] }
 export interface Notification { id: string; relationshipType: RelationshipType; status: 'pending' | 'accepted' | 'rejected'; sender: SocialUser }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -11,9 +11,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return body
 }
 
-export const getSocialUsers = (userId: string) => request<{ data: SocialUser[] }>(`/api/social/users?userId=${encodeURIComponent(userId)}`)
-export const getFriends = (userId: string) => request<{ data: SocialUser[] }>(`/api/social/friends?userId=${encodeURIComponent(userId)}`)
-export const getNotifications = (userId: string) => request<{ data: Notification[] }>(`/api/social/notifications?userId=${encodeURIComponent(userId)}`)
-export const addFriend = (userId: string, friendId: string) => request('/api/social/friends', { method: 'POST', body: JSON.stringify({ userId, friendId }) })
-export const requestRelationship = (userId: string, recipientId: string, relationshipType: RelationshipType) => request('/api/social/relationship-requests', { method: 'POST', body: JSON.stringify({ userId, recipientId, relationshipType }) })
-export const respondNotification = (userId: string, requestId: string, accepted: boolean) => request(`/api/social/notifications/${requestId}/respond`, { method: 'POST', body: JSON.stringify({ userId, accepted }) })
+const authorization = (token: string) => ({ Authorization: `Bearer ${token}` })
+export const getSocialUsers = (token: string) => request<{ data: SocialUser[] }>('/api/social/users', { headers: authorization(token) })
+export const getFriends = (token: string) => request<{ data: SocialUser[] }>('/api/social/friends', { headers: authorization(token) })
+export const getNotifications = (token: string) => request<{ data: Notification[] }>('/api/social/notifications', { headers: { Authorization: `Bearer ${token}` } })
+export const addFriend = (token: string, friendId: string) => request('/api/social/friends', { method: 'POST', headers: authorization(token), body: JSON.stringify({ friendId }) })
+export const requestRelationship = (token: string, recipientId: string, relationshipType: RelationshipType) => request('/api/social/relationship-requests', { method: 'POST', headers: authorization(token), body: JSON.stringify({ recipientId, relationshipType }) })
+export const respondNotification = (token: string, requestId: string, accepted: boolean) => request(`/api/social/notifications/${requestId}/respond`, { method: 'POST', headers: authorization(token), body: JSON.stringify({ accepted }) })

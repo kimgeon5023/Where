@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import Icon from './Icon'
 import LoginModal from './LoginModal'
 import { useAuth } from '../auth/AuthContext'
@@ -12,9 +12,13 @@ function Avatar({ name, image, size = 'small' }: { name: string; image: string; 
 
 export default function AuthActions() {
   const { user, signOut } = useAuth()
+  const location = useLocation()
   const [loginOpen, setLoginOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const rememberReturnLocation = () => {
+    sessionStorage.setItem('where-oauth-return', JSON.stringify({ path: `${location.pathname}${location.search}`, state: window.history.state }))
+  }
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
@@ -25,7 +29,7 @@ export default function AuthActions() {
   }, [])
 
   if (!user) {
-    return <><button type="button" className="login-trigger" onClick={() => setLoginOpen(true)}><Icon name="person" size={15} /> 로그인</button><LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} /></>
+    return <><button type="button" className="login-trigger" onClick={() => setLoginOpen(true)}><Icon name="person" size={15} /> 로그인</button><LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onBeforeGoogleLogin={rememberReturnLocation} /></>
   }
 
   return (
@@ -38,6 +42,7 @@ export default function AuthActions() {
       {menuOpen && <div className="profile-menu">
         <div className="profile-menu-head"><Avatar name={user.name} image={user.profileImage} size="large" /><div><strong>{user.name}</strong><span>{user.email}</span></div></div>
         <div className="profile-menu-divider" />
+        <Link to="/trips" className="profile-menu-item" onClick={() => setMenuOpen(false)}><Icon name="route" size={16} /> 내 코스</Link>
         <Link to="/friends" className="profile-menu-item" onClick={() => setMenuOpen(false)}>👥 친구 · 알림</Link>
         <Link to="/settings" className="profile-menu-item" onClick={() => setMenuOpen(false)}><Icon name="settings" size={16} /> 설정</Link>
         <button type="button" className="profile-menu-item logout-item" onClick={() => { signOut(); setMenuOpen(false) }}><Icon name="logout" size={16} /> 로그아웃</button>
