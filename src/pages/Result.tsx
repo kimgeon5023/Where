@@ -156,10 +156,17 @@ export default function Result() {
     if (!fromSaved) return null
     return savedPlacesForCourse.map((place) => ({ place, score: 100, fitScore: 100, detail: [], reasons: ['담아둔 곳'] } as unknown as ScoredPlace))
   }, [fromSaved, savedPlacesForCourse])
+  // Fallback: API 실패 시에도 카드가 보이게 로컬 캐시/이전 데이터 유지. 첫 로드 실패 시 빈 화면 방지 위해 apiPlaces가 비면 이전 성공 데이터를 재사용
+  const [fallbackPlaces] = useState<Place[]>(() => {
+    try { const raw = localStorage.getItem('where:lastApiPlaces'); return raw ? JSON.parse(raw) as Place[] : [] } catch { return [] }
+  })
+  useEffect(() => { if (apiPlaces.length>0) try { localStorage.setItem('where:lastApiPlaces', JSON.stringify(apiPlaces.slice(0,20))) } catch {} }, [apiPlaces])
+  const effectivePlaces = apiPlaces.length>0 ? apiPlaces : fallbackPlaces
   const scored = useMemo(() => {
     if (scoredFromSaved) return scoredFromSaved
-    return filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : []
-  }, [filterRequest, apiPlaces, excluded, recommendationSeed, scoredFromSaved])
+    const src = effectivePlaces.length>0 ? effectivePlaces : apiPlaces
+    return filterRequest ? recommend(src, filterRequest, excluded, recommendationSeed) : []
+  }, [filterRequest, apiPlaces, effectivePlaces, excluded, recommendationSeed, scoredFromSaved])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => {
     if (fromSaved) {
