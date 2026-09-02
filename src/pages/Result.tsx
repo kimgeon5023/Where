@@ -65,7 +65,7 @@ function shareCourse(req: TripRequest, places: Place[]) {
     c: req.companion, n: String(req.headcount),
     b: String(req.budgetPerPerson), t: req.transport, w: req.weather,
     l: req.likes.join(','), dl: req.dislikes.join(','),
-    p: places.slice(0, 5).map((p) => p.id).join(','),
+    p: places.map((p) => p.id).join(','),
   })
   const url = `${window.location.origin}/result?${params.toString()}`
   if (navigator.clipboard) {
@@ -77,7 +77,10 @@ function shareCourse(req: TripRequest, places: Place[]) {
 
 export default function Result() {
   const location = useLocation()
-  const req = location.state as TripRequest | null
+  const rawReq = location.state as (TripRequest & { _fromSaved?: boolean; _savedPlaces?: Place[] }) | null
+  const req = rawReq as TripRequest | null
+  const fromSaved = Boolean(rawReq?._fromSaved && rawReq?._savedPlaces?.length)
+  const savedPlacesForCourse = rawReq?._savedPlaces || []
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
   const [selectedTags, setSelectedTags] = useState<Tag[]>([])
@@ -101,6 +104,7 @@ export default function Result() {
   const [customCourse, setCustomCourse] = useState<ItineraryStop[]>([])
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+  const [isCustomMode, setIsCustomMode] = useState(false)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
 
   // Budget only changes the local ranking, so typing never causes place API calls.
@@ -134,8 +138,13 @@ export default function Result() {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setApiPlaces([])
-        setApiError('카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
+        console.error('places fetch failed', error)
+        const msg = error instanceof Error && error.message ? error.message : '카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.'
+        setApiError(msg === 'Failed to fetch' ? '서버가 깨어나는 중이에요. 3초 후 자동 재시도합니다.' : msg)
+        // 첫 로드에서 실패해도 기존 데이터가 없으면 자동 재시도 (Render 슬립 대응)
+        if (searchPage === 1) {
+          window.setTimeout(() => setSearchRevision((v) => v + 1), 3000)
+        }
       })
       .finally(() => setLoading(false))
     }, 300)
@@ -143,23 +152,71 @@ export default function Result() {
   }, [req, selectedTags, userLocation, keyword, searchRevision, searchPage])
 
   const filterRequest = useMemo(() => req ? { ...req, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter])
-  const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
+  const scoredFromSaved = useMemo(() => {
+    if (!fromSaved) return null
+    return savedPlacesForCourse.map((place) => ({ place, score: 100, fitScore: 100, detail: [], reasons: ['담아둔 곳'] } as unknown as ScoredPlace))
+  }, [fromSaved, savedPlacesForCourse])
+  // Fallback: API 실패 시에도 카드가 보이게 로컬 캐시/이전 데이터 유지. 첫 로드 실패 시 빈 화면 방지 위해 apiPlaces가 비면 이전 성공 데이터를 재사용
+  const [fallbackPlaces] = useState<Place[]>(() => {
+    try { const raw = localStorage.getItem('where:lastApiPlaces'); return raw ? JSON.parse(raw) as Place[] : [] } catch { return [] }
+  })
+  useEffect(() => { if (apiPlaces.length>0) try { localStorage.setItem('where:lastApiPlaces', JSON.stringify(apiPlaces.slice(0,20))) } catch {} }, [apiPlaces])
+  const effectivePlaces = apiPlaces.length>0 ? apiPlaces : fallbackPlaces
+  const scored = useMemo(() => {
+    if (scoredFromSaved) return scoredFromSaved
+    const src = effectivePlaces.length>0 ? effectivePlaces : apiPlaces
+    return filterRequest ? recommend(src, filterRequest, excluded, recommendationSeed) : []
+  }, [filterRequest, apiPlaces, effectivePlaces, excluded, recommendationSeed, scoredFromSaved])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
-  const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
+  const itineraries = useMemo(() => {
+    if (fromSaved) {
+      // 담아둔 곳을 그대로 일정으로 — 하루에 5곳씩 나눠 담기
+      const stops: ItineraryStop[] = savedPlacesForCourse.map((place, i) => ({
+        time: `${String(10 + Math.floor(i % 5) * 2).padStart(2,'0')}:00`,
+        emoji: place.category === 'food' ? '🍽️' : place.category === 'cafe' ? '☕' : place.category === 'activity' ? '🎡' : '🌤️',
+        place,
+      }))
+      const perDay = 5
+      const days: ItineraryStop[][] = []
+      for (let d = 0; d < dayCount; d++) days.push(stops.slice(d * perDay, (d + 1) * perDay))
+      // 남은 날은 빈 배열로
+      while (days.length < dayCount) days.push([])
+      return days
+    }
+    return req ? buildItineraries(scored, req, dayCount, recommendationSeed) : []
+  }, [scored, req, dayCount, recommendationSeed, fromSaved, savedPlacesForCourse])
   const rawCurrentCourse = itineraries[day] ?? []
-  const currentCourse = customCourse.length > 0 && customCourse.length === rawCurrentCourse.length ? customCourse : rawCurrentCourse
+  const currentCourse = isCustomMode ? customCourse : (customCourse.length > 0 && customCourse.length === rawCurrentCourse.length ? customCourse : rawCurrentCourse)
+
+  const addToCustomCourse = useCallback((place: Place) => {
+    setIsCustomMode(true)
+    setCustomCourse((prev) => {
+      if (prev.some((s) => s.place.id === place.id)) return prev
+      const time = `${String(10 + Math.floor(prev.length * 1.5)).padStart(2,'0')}:00`
+      const emoji = place.category === 'food' ? '🍽️' : place.category === 'cafe' ? '☕' : place.category === 'activity' ? '🎡' : '🌤️'
+      return [...prev, { time, emoji, place }]
+    })
+  }, [])
+  const removeFromCustomCourse = useCallback((placeId: string) => {
+    setCustomCourse((prev) => prev.filter((s) => s.place.id !== placeId))
+  }, [])
+  const clearCustomCourse = useCallback(() => {
+    setCustomCourse([])
+    setIsCustomMode(false)
+  }, [])
 
   const handleDragStart = useCallback((index: number) => { setDragIndex(index) }, [])
   const handleDragOver = useCallback((e: React.DragEvent, index: number) => { e.preventDefault(); setDragOverIndex(index) }, [])
   const handleDrop = useCallback((index: number) => {
     if (dragIndex === null || dragIndex === index) { setDragIndex(null); setDragOverIndex(null); return }
-    const updated = [...rawCurrentCourse]
+    const source = isCustomMode ? customCourse : rawCurrentCourse
+    const updated = [...source]
     const [moved] = updated.splice(dragIndex, 1)
     updated.splice(index, 0, moved)
     setCustomCourse(updated)
     setDragIndex(null)
     setDragOverIndex(null)
-  }, [dragIndex, rawCurrentCourse])
+  }, [dragIndex, rawCurrentCourse, customCourse, isCustomMode])
 
   useEffect(() => { setCustomCourse([]) }, [day])
   const allCourse = useMemo(() => {
@@ -191,7 +248,7 @@ export default function Result() {
     const timer = window.setTimeout(() => {
       setRouteStatus('실시간 차량 경로를 계산하는 중이에요.')
       const origin = userLocation ?? { lat: coursePlaces[0].lat, lng: coursePlaces[0].lng }
-      searchRoute({ origin, stops: coursePlaces.slice(0, 5).map(({ lat, lng }) => ({ lat, lng })), transport: 'car' }, controller.signal)
+      searchRoute({ origin, stops: coursePlaces.slice(0, 20).map(({ lat, lng }) => ({ lat, lng })), transport: 'car' }, controller.signal)
         .then(({ data }) => { setRoute(data); setRouteStatus('') })
         .catch(() => { setRoute(null); setRouteStatus('실시간 차량 경로를 불러오지 못했어요.') })
     }, 400)
@@ -224,7 +281,18 @@ export default function Result() {
       </section>
       <section className="result-layout">
         <div className="itinerary-column">
-          <div className="section-heading"><div><span className="step-label">RECOMMENDED ROUTE</span><h2>당신을 위한 맞춤 코스</h2></div><span className="result-count">{scored.length}개의 장소를 찾았어요</span></div>
+          <div className="section-heading"><div><span className="step-label">RECOMMENDED ROUTE</span><h2>당신을 위한 맞춤 코스</h2></div>
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <span className="result-count">{isCustomMode ? `${customCourse.length}곳 직접 선택` : `${scored.length}개의 장소를 찾았어요`}</span>
+              <button type="button" className="ghost-button" style={{ fontSize:11, padding:'6px 10px', background: isCustomMode ? '#2878f0' : '#fff', color: isCustomMode ? '#fff' : '#5a6d8a', borderColor: isCustomMode ? '#2878f0' : '#e2e6e0' }} onClick={() => { if (isCustomMode) clearCustomCourse(); else { setIsCustomMode(true); if (rawCurrentCourse.length>0) setCustomCourse(rawCurrentCourse) } }}>{isCustomMode ? '자동 코스' : '직접 짜기'}</button>
+            </div>
+          </div>
+          {isCustomMode && (
+            <div style={{ display:'flex', gap:8, marginBottom:12, padding:'10px', background:'#f0f7ff', border:'1px solid #dbe4f0', borderRadius:10, fontSize:11, color:'#3a5a8a' }}>
+              <span>👆 아래 추천 장소에서 <strong>담기</strong>를 눌러 직접 코스를 만들어보세요. 드래그로 순서도 바꿀 수 있어요.</span>
+              {customCourse.length>0 && <button type="button" className="ghost-button" style={{ marginLeft:'auto', fontSize:10, padding:'4px 8px' }} onClick={clearCustomCourse}>초기화</button>}
+            </div>
+          )}
           {apiError && <div className="search-feedback form-error"><span>{apiError}</span><button type="button" className="ghost-button" onClick={() => setSearchRevision((value) => value + 1)}>다시 시도</button></div>}
           <div className="result-filter-bar">
             <div className="tag-list" aria-label="장소 카테고리 필터">
@@ -240,14 +308,40 @@ export default function Result() {
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
             <div className="route-summary">{route ? <><strong>실시간 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 실시간 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
-            <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
+            <div className="timeline">
+              {isCustomMode && customCourse.length === 0 && <p className="empty-route">담은 장소가 없어요. 아래에서 장소를 담아보세요.</p>}
+              {!isCustomMode && currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}
+              {currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{isCustomMode ? <button type="button" className="ghost-button" style={{ marginTop:6, fontSize:10, padding:'3px 7px', minHeight:24 }} onClick={() => removeFromCustomCourse(stop.place.id)}>빼기</button> : (index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>)}</div></div>)}</div>
+            {isCustomMode && (
+              <div className="custom-complete-bar" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:14, paddingTop:12, borderTop:'1px solid #eef2f7' }}>
+                <span style={{ color:'#6f7b91', fontSize:11 }}>{customCourse.length > 0 ? `${customCourse.length}곳 담김 · 수정 후 완료를 눌러 적용하세요` : '장소를 담아보세요'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (customCourse.length === 0) { alert('담은 장소가 없어요. 장소를 담아보세요.'); return }
+                    // 완료 시 적용 - 현재 customCourse가 그대로 유지되며 토스트로 확인
+                    const ok = window.confirm(`${customCourse.length}곳 코스를 완료할까요? 완료하면 이대로 적용됩니다.`)
+                    if (ok) {
+                      // isCustomMode 유지, 완료 상태로 저장(간단히 로컬스토리지에 백업)
+                      try { localStorage.setItem('where:customCourse', JSON.stringify(customCourse.map(s=>s.place.id))); localStorage.setItem('where:customCourseDay', String(day)) } catch {}
+                      alert('완료! 직접 짠 코스로 적용되었습니다.')
+                    }
+                  }}
+                  disabled={customCourse.length === 0}
+                  className="primary-button"
+                  style={{ minHeight:34, padding:'0 16px', fontSize:12, background: customCourse.length===0 ? '#c9d1de' : '#2878f0', cursor: customCourse.length===0 ? 'not-allowed' : 'pointer' }}
+                >
+                  완료
+                </button>
+              </div>
+            )}
           </div>
           <div className="section-heading place-heading"><div><h2>추천 장소</h2></div><span className="result-count">현재 {recommended.length}곳 표시</span></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>필터로 원하는 장소만 둘러보세요</strong><p>선택한 테마에 맞는 실제 장소만 목록과 지도에 표시합니다.</p></div></div>
           {loading ? (
             <div className="place-list"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
           ) : (
-            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
+            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} onAdd={addToCustomCourse} isCustomMode={isCustomMode} isAdded={customCourse.some((s) => s.place.id === item.place.id)} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
