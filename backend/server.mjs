@@ -476,12 +476,15 @@ createServer(async (request, response) => {
     const userId = authenticatedUserId(request)
     if (!userId) return sendJson(response, 401, { error: '로그인이 필요합니다.' })
     try {
-      const input = await readJsonBody(request, 16_384)
+      const input = await readJsonBody(request, 7_200_000)
       const content = typeof input.content === 'string' ? input.content.trim() : ''
       const rating = Number(input.rating)
+      const imageUrl = typeof input.imageUrl === 'string' ? input.imageUrl : ''
       if (!content || content.length > 1000 || !Number.isInteger(rating) || rating < 1 || rating > 5) return sendJson(response, 400, { error: '후기 내용과 1~5점 별점을 확인해 주세요.' })
+      if (imageUrl.length > 7_100_000) return sendJson(response, 413, { error: '이미지가 너무 큽니다.' })
+      if (imageUrl && !/^https:\/\/.+/.test(imageUrl) && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl)) return sendJson(response, 400, { error: '이미지 형식이 올바르지 않습니다.' })
       const placeId = decodeURIComponent(url.pathname.split('/')[3])
-      return sendJson(response, 201, { data: await createPlaceReview({ userId, placeId, rating, content }) })
+      return sendJson(response, 201, { data: await createPlaceReview({ userId, placeId, rating, content, imageUrl }) })
     } catch { return sendJson(response, 400, { error: '후기를 등록하지 못했습니다.' }) }
   }
   if (request.method === 'DELETE' && /^\/api\/reviews\/[^/]+$/.test(url.pathname)) {
