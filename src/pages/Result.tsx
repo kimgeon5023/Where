@@ -139,10 +139,12 @@ export default function Result() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         console.error('places fetch failed', error)
-        // 유지: 기존 목록을 지우지 않고 에러만 표시 (첫 로드시엔 빈 목록 유지)
         const msg = error instanceof Error && error.message ? error.message : '카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.'
-        // Render가 슬립 상태면 Failed to fetch가 오므로 친절한 메시지로 치환
-        setApiError(msg === 'Failed to fetch' ? '서버가 깨어나는 중이에요. 5초 후 다시 시도해주세요.' : msg)
+        setApiError(msg === 'Failed to fetch' ? '서버가 깨어나는 중이에요. 3초 후 자동 재시도합니다.' : msg)
+        // 첫 로드에서 실패해도 기존 데이터가 없으면 자동 재시도 (Render 슬립 대응)
+        if (searchPage === 1) {
+          window.setTimeout(() => setSearchRevision((v) => v + 1), 3000)
+        }
       })
       .finally(() => setLoading(false))
     }, 300)
