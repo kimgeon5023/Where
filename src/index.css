@@ -815,6 +815,15 @@ input[type="date"] { color: #626a65; }
 .review-detail > img { display: block; width: 100%; max-height: 440px; margin: 14px 0; border-radius: 10px; object-fit: contain; background: #f4f6f4; }
 .review-detail .danger-text { margin-left: 9px; }
 
+/* Recommendation cards stay compact: only one short review preview is visible. */
+.place-card .review-list { margin-top: 11px; padding: 8px 10px; }
+.place-card .review-preview { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; max-height: 68px; margin-top: 5px; padding: 5px 0; }
+.place-card .review-preview .review-stars { grid-column: 1; }
+.place-card .review-preview p { grid-column: 1; margin: 1px 0; -webkit-line-clamp: 1; }
+.place-card .review-preview small { grid-column: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.place-card .review-preview img { grid-column: 2; grid-row: 1 / span 3; float: none; width: 42px; height: 42px; margin: 0 0 0 8px; }
+.place-card .review-more { margin-top: 4px; }
+
 @media (max-width: 520px) {
   .trip-basic-fields { grid-template-columns: 1fr; }
   .review-modal article { max-height: 88vh; }
