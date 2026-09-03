@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
 import Result from './pages/Result'
 import Settings from './pages/Settings'
+import MyReviews from './pages/MyReviews'
 import Saved from './pages/Saved'
 import Friends from './pages/Friends'
 import SharedTrip from './pages/SharedTrip'
@@ -22,6 +23,7 @@ function App() {
               <Route path="/" element={<Home />} />
               <Route path="/result" element={<Result />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/my-reviews" element={<MyReviews />} />
               <Route path="/saved" element={<Saved />} />
               <Route path="/friends" element={<Friends />} />
               <Route path="/share/trips/:shareToken" element={<SharedTrip />} />

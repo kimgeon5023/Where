@@ -44,6 +44,7 @@ export default function AuthActions() {
         <div className="profile-menu-divider" />
         <Link to="/trips" className="profile-menu-item" onClick={() => setMenuOpen(false)}><Icon name="route" size={16} /> 내 코스</Link>
         <Link to="/friends" className="profile-menu-item" onClick={() => setMenuOpen(false)}>👥 친구 · 알림</Link>
+        <Link to="/my-reviews" className="profile-menu-item" onClick={() => setMenuOpen(false)}><Icon name="star" size={16} /> 내가 작성한 리뷰</Link>
         <Link to="/settings" className="profile-menu-item" onClick={() => setMenuOpen(false)}><Icon name="settings" size={16} /> 설정</Link>
         <button type="button" className="profile-menu-item logout-item" onClick={() => { signOut(); setMenuOpen(false) }}><Icon name="logout" size={16} /> 로그아웃</button>
         <button type="button" className="profile-menu-exit" onClick={() => setMenuOpen(false)}>나가기</button>
