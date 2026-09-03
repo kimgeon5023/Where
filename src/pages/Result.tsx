@@ -138,6 +138,8 @@ export default function Result() {
   const [savedTrip, setSavedTrip] = useState<Trip | null>(null)
   const [tripNotice, setTripNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [editedDays, setEditedDays] = useState<Record<number, ItineraryStop[]>>({})
+  const [manualCourseDays, setManualCourseDays] = useState<Record<number, ItineraryStop[]>>({})
+  const [isManualCourseEditing, setIsManualCourseEditing] = useState(false)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
@@ -215,30 +217,34 @@ export default function Result() {
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
   const rawCurrentCourse = itineraries[day] ?? []
-  const currentCourse = editedDays[day] ?? rawCurrentCourse
+  const automaticCurrentCourse = editedDays[day] ?? rawCurrentCourse
+  const currentCourse = isManualCourseEditing ? manualCourseDays[day] ?? [] : automaticCurrentCourse
+  const persistedCourseDays = useMemo(() => isManualCourseEditing
+    ? Array.from({ length: dayCount }, (_, index) => (manualCourseDays[index] ?? []).map((stop) => stop.place))
+    : itineraries.map((itinerary, index) => (editedDays[index] ?? itinerary).map((stop) => stop.place)), [isManualCourseEditing, manualCourseDays, dayCount, itineraries, editedDays])
 
   const handleDragStart = useCallback((index: number) => { setDragIndex(index) }, [])
   const handleDragOver = useCallback((e: React.DragEvent, index: number) => { e.preventDefault(); setDragOverIndex(index) }, [])
   const handleDrop = useCallback((index: number) => {
     if (dragIndex === null || dragIndex === index) { setDragIndex(null); setDragOverIndex(null); return }
-    const updated = [...rawCurrentCourse]
+    const updated = [...currentCourse]
     const [moved] = updated.splice(dragIndex, 1)
     updated.splice(index, 0, moved)
-    setEditedDays((current) => ({ ...current, [day]: updated }))
+    if (isManualCourseEditing) setManualCourseDays((current) => ({ ...current, [day]: updated }))
+    else setEditedDays((current) => ({ ...current, [day]: updated }))
     setDragIndex(null)
     setDragOverIndex(null)
-  }, [dragIndex, rawCurrentCourse, day])
+  }, [dragIndex, currentCourse, day, isManualCourseEditing])
   const allCourse = useMemo(() => {
     const seen = new Set<string>()
-    return itineraries.flat().filter((stop) => {
-      if (seen.has(stop.place.id)) return false
-      seen.add(stop.place.id)
+    return persistedCourseDays.flat().filter((place) => {
+      if (seen.has(place.id)) return false
+      seen.add(place.id)
       return true
-    }).map((stop) => scored.find((item) => item.place.id === stop.place.id)).filter(Boolean) as typeof scored
-  }, [itineraries, scored])
+    }).map((place) => scored.find((item) => item.place.id === place.id)).filter(Boolean) as typeof scored
+  }, [persistedCourseDays, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
-  const persistedCourseDays = useMemo(() => itineraries.map((itinerary, index) => (editedDays[index] ?? itinerary).map((stop) => stop.place)), [itineraries, editedDays])
   const saveCourse = useCallback(async (isPublic: boolean) => {
     if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
     if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소가 없습니다.' }); return }
@@ -258,11 +264,49 @@ export default function Result() {
       } else setTripNotice({ kind: 'success', text: '내 코스에 저장했습니다.' })
     } catch (error) { setTripNotice({ kind: 'error', text: error instanceof Error ? error.message : '코스를 저장하지 못했습니다.' }) } finally { setTripActionBusy(false) }
   }, [req, user, persistedCourseDays, savedTrip, refreshTrips])
+  const startManualCourse = () => {
+    setManualCourseDays({})
+    setIsManualCourseEditing(true)
+    setDay(0)
+    setTripNotice({ kind: 'success', text: '직접 코스 만들기를 시작했어요. 추천 장소에서 원하는 곳을 추가하세요.' })
+  }
+  const cancelManualCourse = () => {
+    setManualCourseDays({})
+    setIsManualCourseEditing(false)
+    setTripNotice({ kind: 'success', text: '직접 코스 초안을 취소했어요.' })
+  }
+  const isInManualCourse = (placeId: string) => Object.values(manualCourseDays).some((stops) => stops.some((stop) => stop.place.id === placeId))
+  const toggleManualPlace = (place: Place) => {
+    if (isInManualCourse(place.id)) {
+      setManualCourseDays((current) => Object.fromEntries(Object.entries(current).map(([key, stops]) => [key, stops.filter((stop) => stop.place.id !== place.id)])))
+      return
+    }
+    setManualCourseDays((current) => {
+      const stops = current[day] ?? []
+      const hour = Math.min(21, 10 + stops.length * 2)
+      return { ...current, [day]: [...stops, { time: `${String(hour).padStart(2, '0')}:00`, emoji: '', place }] }
+    })
+  }
+  const completeManualCourse = async () => {
+    if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
+    if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소를 한 곳 이상 추가해 주세요.' }); return }
+    const title = window.prompt('코스 이름을 입력해 주세요.', `${req.start} 여행 코스`)
+    if (!title?.trim()) return
+    setTripActionBusy(true)
+    try {
+      await createTrip(toTripInput(req, persistedCourseDays, title.trim(), false), user.token)
+      await refreshTrips()
+      setManualCourseDays({})
+      setIsManualCourseEditing(false)
+      setTripNotice({ kind: 'success', text: '직접 만든 코스를 내 코스에 저장했어요.' })
+    } catch (error) { setTripNotice({ kind: 'error', text: error instanceof Error ? error.message : '코스를 저장하지 못했습니다.' }) }
+    finally { setTripActionBusy(false) }
+  }
   // Explore results are not capped at eight. Additional API pages are appended
   // through the “더보기” button below; every request remains limited to 20.
   const recommended = sortedScored
   const recommendedPlaces = recommended.map((item) => item.place)
-  const mapPlaces = (recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces).filter((place) => place.category !== 'lodging').slice(0, 40)
+  const mapPlaces = (isManualCourseEditing ? coursePlaces : (recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces)).filter((place) => place.category !== 'lodging').slice(0, 40)
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
@@ -295,8 +339,8 @@ export default function Result() {
         <Link to="/" className="booking-brand"><span className="booking-brand-mark">갈</span><span>갈래말래</span></Link>
         <nav className="result-breadcrumb" aria-label="현재 위치"><Link to="/">맞춤 코스</Link><span>/</span><strong>추천 결과</strong></nav>
         <div className="result-top-actions">
-          <button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(true)}><Icon name="arrow" size={13} /> 공유</button>
-          <button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(false)}>내 코스 저장</button>
+          {!isManualCourseEditing && <><button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(true)}><Icon name="arrow" size={13} /> 공유</button>
+          <button type="button" className="ghost-button result-share-button" disabled={tripActionBusy} onClick={() => saveCourse(false)}>내 코스 저장</button></>}
           <Link to="/saved" className="saved-count">♡ 찜한 장소 {favorites.length}</Link>
           <Link to="/trips" className="saved-count">내 코스 {trips.length}</Link>
           <Link to="/" className="back-button">조건 다시 설정</Link>
@@ -331,12 +375,12 @@ export default function Result() {
             <div className="route-summary">{route ? <><strong>실시간 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 실시간 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
             <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
           </div>
-          <div className="section-heading place-heading"><div><h2>추천 장소</h2></div><span className="result-count">현재 {recommended.length}곳 표시</span></div>
+          <div className="section-heading place-heading"><div><h2>추천 장소</h2>{isManualCourseEditing && <small className="manual-course-hint">직접 코스에 {persistedCourseDays.flat().length}곳을 담았어요. 카드에서 추가하거나 제거할 수 있어요.</small>}</div><div className="manual-course-actions">{isManualCourseEditing ? <><button type="button" className="ghost-button" onClick={cancelManualCourse} disabled={tripActionBusy}>취소</button><button type="button" className="primary-button" onClick={() => void completeManualCourse()} disabled={tripActionBusy}>{tripActionBusy ? '저장 중...' : '완료하고 저장'}</button></> : <button type="button" className="primary-button" onClick={startManualCourse}>코스 직접 짜기</button>}<span className="result-count">현재 {recommended.length}곳 표시</span></div></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>필터로 원하는 장소만 둘러보세요</strong><p>선택한 테마에 맞는 실제 장소만 목록과 지도에 표시합니다.</p></div></div>
           {loading ? (
             <div className="place-list"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
           ) : (
-            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} onReviewSummary={({ placeId, rating, reviewCount }) => setApiPlaces((current) => current.map((place) => place.id === placeId ? { ...place, rating, reviewCount } : place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
+            <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} inCourse={isManualCourseEditing && isInManualCourse(item.place.id)} onCourseToggle={isManualCourseEditing ? () => toggleManualPlace(item.place) : undefined} onReviewSummary={({ placeId, rating, reviewCount }) => setApiPlaces((current) => current.map((place) => place.id === placeId ? { ...place, rating, reviewCount } : place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>

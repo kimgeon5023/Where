@@ -236,6 +236,12 @@ input[type="date"] { color: #626a65; }
 .timeline-content small { margin-top: 5px; color: #a5b7ab; font-size: 10px; }
 .empty-route { color: #9ca59d; font-size: 13px; }
 .place-heading { margin-top: 43px; }
+.manual-course-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.manual-course-actions .primary-button, .manual-course-actions .ghost-button { flex: 0 0 auto; min-height: 34px; padding: 0 11px; font-size: 11px; }
+.manual-course-hint { display: block; max-width: 410px; margin-top: 5px; color: #397254; font-size: 11px; font-weight: 600; line-height: 1.45; }
+.place-actions .course-add-button, .place-actions .course-remove-button { flex: 1.25; }
+.place-actions .course-add-button { min-height: 33px; border-radius: 7px; font-size: 10px; }
+.course-remove-button { color: #b34d4d; }
 .ai-insight { display: flex; align-items: flex-start; gap: 11px; margin: -4px 0 17px; padding: 14px 15px; border: 1px solid #d9eee3; border-radius: 12px; background: linear-gradient(105deg, #f1faf5, #fbfdf9); color: var(--green); }
 .ai-insight > svg { flex: 0 0 auto; margin-top: 1px; }
 .ai-insight strong, .ai-insight p { display: block; }
@@ -825,6 +831,8 @@ input[type="date"] { color: #626a65; }
 .place-card .review-more { margin-top: 4px; }
 
 @media (max-width: 520px) {
+  .place-heading { align-items: flex-start; }
+  .manual-course-actions { width: 100%; justify-content: flex-start; }
   .trip-basic-fields { grid-template-columns: 1fr; }
   .review-modal article { max-height: 88vh; }
   .review-modal-list { max-height: calc(88vh - 54px); padding-inline: 15px; }
