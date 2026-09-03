@@ -80,7 +80,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
 
   const submitReview = async () => {
     if (!user?.token) return setReviewError('로그인 후 후기를 작성할 수 있어요.')
-    if (!reviewText.trim()) return setReviewError('후기 내용을 입력해 주세요.')
+    if (!reviewText.trim() && !imageUrl) return setReviewError('후기 내용 또는 사진을 첨부해 주세요.')
     if (submittingReview) return
     setSubmittingReview(true)
     setReviewError('')
