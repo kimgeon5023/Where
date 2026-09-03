@@ -851,7 +851,13 @@ input[type="date"] { color: #626a65; }
   min-height: 0;
   box-sizing: border-box;
   overflow: hidden;
+  position: relative;
 }
+
+/* Once a review exists, the old write button used to sit below the clipped card body.
+   Pin it inside the card so a second (or third) review is always reachable. */
+.result-booking-shell .place-body:has(.review-list) .review-write { position: absolute; right: 13px; bottom: 12px; z-index: 2; margin: 0; padding: 6px 9px; border-radius: 999px; background: #f4f8ff; color: #2878f0; }
+.result-booking-shell .place-body:has(.review-list) .place-actions { padding-bottom: 38px; }
 
 /* Desktop results are compact enough to scan two recommended places at once. */
 @media (min-width: 761px) {
