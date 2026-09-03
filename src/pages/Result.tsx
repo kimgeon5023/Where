@@ -186,13 +186,15 @@ export default function Result() {
         if (error instanceof DOMException && error.name === 'AbortError') return
         // Render can briefly be unavailable while waking or redeploying. Keep
         // the last successful list on screen instead of making every card vanish.
-        if (attempts < 2 && !controller.signal.aborted) {
+        // A sleeping Render instance can take close to a minute to wake up.
+        // Keep retrying in this open screen so the user never needs to refresh.
+        if (attempts < 6 && !controller.signal.aborted) {
           attempts += 1
-          retryTimer = window.setTimeout(loadPlaces, attempts * 2_000)
-          setApiError('추천 장소 연결이 잠시 지연되고 있어요. 기존 목록은 유지하며 다시 연결 중입니다.')
+          retryTimer = window.setTimeout(loadPlaces, Math.min(15_000, attempts * 3_000))
+          setApiError('추천 장소 서버와 다시 연결 중이에요. 새로고침하지 않아도 이 화면에서 자동으로 표시됩니다.')
           return
         }
-        setApiError('추천 장소 연결이 잠시 지연되고 있어요. 현재 목록은 유지했습니다. 잠시 후 다시 시도해 주세요.')
+        setApiError('추천 장소 서버 연결이 오래 지연되고 있어요. 현재 목록은 유지했으며, 아래 버튼으로 다시 연결할 수 있습니다.')
       })
       .finally(() => {
         if (retryTimer === undefined) setLoading(false)
