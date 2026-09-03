@@ -5,20 +5,13 @@ import BottomNav from '../components/BottomNav'
 import Icon from '../components/Icon'
 import { useAuth } from '../auth/AuthContext'
 import { apiUrl } from '../lib/api'
+import { readCachedReviews, removeCachedReview, writeCachedReviews, type CachedReview } from '../lib/reviewCache'
 
-interface Review {
-  id: string
-  place_id: string
-  place_name?: string
-  rating: number
-  content: string
-  image_url?: string
-  created_at: string
-}
+type Review = CachedReview
 
 export default function MyReviews() {
   const { user } = useAuth()
-  const [reviews, setReviews] = useState<Review[]>([])
+  const [reviews, setReviews] = useState<Review[]>(() => user ? readCachedReviews(user.id) : [])
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -27,13 +20,18 @@ export default function MyReviews() {
 
   useEffect(() => {
     if (!user?.token) return
+    const userId = user.id
+    const token = user.token
     let active = true
     let retryTimer: number | undefined
+    let retryDelay = 2_000
+    const cached = readCachedReviews(userId)
+    if (cached.length) { setReviews(cached); setLoading(false) }
     const loadAllReviews = async () => {
       try {
         const all: Review[] = []
         for (let page = 1; ; page += 1) {
-          const response = await fetch(apiUrl(`/api/my/reviews?page=${page}&limit=50`), { headers: { Authorization: `Bearer ${user.token}` } })
+          const response = await fetch(apiUrl(`/api/my/reviews?page=${page}&limit=50`), { headers: { Authorization: `Bearer ${token}` } })
           const raw = await response.text()
           let body: { data?: Review[]; error?: string } = {}
           try { body = JSON.parse(raw) as { data?: Review[]; error?: string } } catch { /* Render wake responses can be HTML. */ }
@@ -42,22 +40,22 @@ export default function MyReviews() {
           all.push(...batch)
           if (batch.length < 50) break
         }
-        if (active) { setReviews(all); setMessage('') }
-      } catch (error) {
+        if (active) { setReviews(all); writeCachedReviews(userId, all); setMessage(''); retryDelay = 2_000 }
+      } catch {
         if (active) {
-          setMessage(error instanceof Error ? error.message : '리뷰를 불러오지 못했습니다.')
-          // Render may need a moment to wake up. Keep the user's page open and
-          // show previously written reviews as soon as the API is reachable.
-          retryTimer = window.setTimeout(() => { void loadAllReviews() }, 2_000)
+          setMessage(cached.length || readCachedReviews(userId).length ? '리뷰 서버와 다시 연결 중이에요. 저장된 리뷰를 먼저 표시합니다.' : '리뷰 서버와 다시 연결 중이에요. 연결되면 작성한 리뷰가 자동으로 표시됩니다.')
+          if (retryTimer) window.clearTimeout(retryTimer)
+          retryTimer = window.setTimeout(() => { void loadAllReviews() }, retryDelay)
+          retryDelay = Math.min(15_000, retryDelay * 2)
         }
       } finally { if (active) setLoading(false) }
     }
-    const refreshOnReviewSave = () => { void loadAllReviews() }
+    const refreshOnReviewSave = () => { setReviews(readCachedReviews(userId)); void loadAllReviews() }
     window.addEventListener('where:review-saved', refreshOnReviewSave)
     window.addEventListener('focus', refreshOnReviewSave)
     void loadAllReviews()
     return () => { active = false; if (retryTimer) window.clearTimeout(retryTimer); window.removeEventListener('where:review-saved', refreshOnReviewSave); window.removeEventListener('focus', refreshOnReviewSave) }
-  }, [user?.token])
+  }, [user?.id, user?.token])
 
   if (!user) return <Navigate to="/" replace />
 
@@ -65,18 +63,24 @@ export default function MyReviews() {
   const cancelEdit = () => { setEditingId(null); setDraftContent(''); setDraftRating(5) }
   const saveEdit = async (review: Review) => {
     if (!draftContent.trim()) return setMessage('리뷰 내용을 입력해 주세요.')
-    const response = await fetch(apiUrl(`/api/reviews/${review.id}`), { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` }, body: JSON.stringify({ content: draftContent.trim(), rating: draftRating, imageUrl: review.image_url || '' }) })
-    const body = await response.json() as { data?: Review; error?: string }
-    if (!response.ok || !body.data) return setMessage(body.error || '리뷰를 수정하지 못했습니다.')
-    setReviews((current) => current.map((item) => item.id === review.id ? { ...item, ...body.data } : item))
-    cancelEdit()
+    try {
+      const response = await fetch(apiUrl(`/api/reviews/${review.id}`), { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` }, body: JSON.stringify({ content: draftContent.trim(), rating: draftRating, imageUrl: review.image_url || '' }) })
+      const body = await response.json() as { data?: Review; error?: string }
+      if (!response.ok || !body.data) return setMessage(body.error || '리뷰를 수정하지 못했습니다.')
+      const next = reviews.map((item) => item.id === review.id ? { ...item, ...body.data } : item)
+      setReviews(next); writeCachedReviews(user.id, next); cancelEdit(); setMessage('')
+    } catch { setMessage('리뷰 서버와 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.') }
   }
   const removeReview = async (review: Review) => {
     if (!window.confirm('이 리뷰를 삭제할까요?')) return
-    const response = await fetch(apiUrl(`/api/reviews/${review.id}`), { method: 'DELETE', headers: { Authorization: `Bearer ${user.token}` } })
-    if (!response.ok) return setMessage('리뷰를 삭제하지 못했습니다.')
-    setReviews((current) => current.filter((item) => item.id !== review.id))
-    if (editingId === review.id) cancelEdit()
+    try {
+      const response = await fetch(apiUrl(`/api/reviews/${review.id}`), { method: 'DELETE', headers: { Authorization: `Bearer ${user.token}` } })
+      if (!response.ok) return setMessage('리뷰를 삭제하지 못했습니다.')
+      setReviews((current) => current.filter((item) => item.id !== review.id))
+      removeCachedReview(user.id, review.id)
+      if (editingId === review.id) cancelEdit()
+      setMessage('')
+    } catch { setMessage('리뷰 서버와 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.') }
   }
 
   return <main className="app-shell settings-shell">

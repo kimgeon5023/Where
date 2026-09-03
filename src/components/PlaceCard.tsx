@@ -3,11 +3,12 @@ import type { ScoredPlace } from '../lib/scoring'
 import Icon, { type IconName } from './Icon'
 import { useAuth } from '../auth/AuthContext'
 import { apiUrl } from '../lib/api'
+import { rememberCachedReview, removeCachedReview } from '../lib/reviewCache'
 
 const labels: Record<string, string> = { tour: '명소', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티', lodging: '숙소' }
 const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
 interface ReviewSummary { placeId: string; rating: number; reviewCount: number }
-interface Review { id: string; user_id: string | null; user_name: string | null; content: string; rating: number; image_url?: string; created_at: string; summary?: ReviewSummary }
+interface Review { id: string; place_id?: string; place_name?: string; user_id: string | null; user_name: string | null; content: string; rating: number; image_url?: string; created_at: string; summary?: ReviewSummary }
 
 async function compressImage(file: File) {
   if (!file.type.startsWith('image/')) throw new Error('이미지 파일만 첨부할 수 있어요.')
@@ -91,8 +92,9 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
           const response = await fetch(apiUrl(`/api/places/${encodeURIComponent(place.id)}/reviews`), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user.token}` }, body: payload })
           const body = await readResponse<{ data?: Review; error?: string }>(response)
           if (response.ok && body.data) {
-            const review = { ...body.data, user_id: body.data.user_id || user.id, user_name: body.data.user_name || user.name }
+            const review = { ...body.data, place_id: body.data.place_id || place.id, place_name: body.data.place_name || place.name, user_id: body.data.user_id || user.id, user_name: body.data.user_name || user.name }
             setReviews((current) => [review, ...current])
+            rememberCachedReview(user.id, { id: review.id, place_id: review.place_id, place_name: review.place_name, rating: review.rating, content: review.content, image_url: review.image_url, created_at: review.created_at })
             if (body.data.summary) onReviewSummary?.(body.data.summary)
             window.dispatchEvent(new Event('where:review-saved'))
             closeForm()
@@ -118,6 +120,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
       const remaining = reviews.filter((review) => review.id !== reviewId)
       setReviews(remaining)
       setSelectedReview(remaining[0] || null)
+      removeCachedReview(user.id, reviewId)
       window.dispatchEvent(new Event('where:review-saved'))
     } catch { setReviewError('후기 삭제 서버와 연결하지 못했습니다.') }
     finally { setDeletingReviewId('') }
@@ -149,7 +152,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
       <div className="place-meta"><span><Icon name="star" size={11} /> {place.rating || '후기 없음'}</span><span>{place.indoor ? '실내' : '실외'}</span></div>
       <div className="reason-row">{scored.reasons.slice(0, 2).map((reason) => <span key={reason}>#{reason}</span>)}</div>
       {favoriteError && <p className="inline-error">{favoriteError}</p>}
-      {reviews.length > 0 && <div className="review-list"><strong>방문자 후기 ({reviews.length}개)</strong>{reviews.slice(0, 1).map((review) => <button className="review-preview" type="button" key={review.id} aria-label="리뷰 전체 보기" onClick={(event) => { event.stopPropagation(); setSelectedReview(review) }}><span className="review-stars">{'★'.repeat(review.rating)}</span><p>{review.content}</p>{review.image_url && <img src={review.image_url} alt="첨부된 리뷰 사진" />}</button>)}</div>}
+      {reviews.length > 0 && <div className="review-list">{reviews.slice(0, 1).map((review) => <button className="review-preview" type="button" key={review.id} aria-label="리뷰 전체 보기" onClick={(event) => { event.stopPropagation(); setSelectedReview(review) }}><strong>후기 {reviews.length}</strong><span className="review-stars">★ {review.rating}</span><p>{review.content}</p><span className="review-open-label">전체보기</span></button>)}</div>}
       {showReviewForm && <div className="review-form" onClick={(event) => event.stopPropagation()}><strong>방문 후기를 남겨주세요</strong><div className="star-picker">{[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" onClick={() => setReviewRating(star)} disabled={submittingReview}>{star <= reviewRating ? '★' : '☆'}</button>)}</div><textarea value={reviewText} maxLength={1000} onChange={(event) => setReviewText(event.target.value)} placeholder="방문 후기를 남겨주세요." rows={3} disabled={submittingReview} /><input ref={fileRef} type="file" accept="image/*" hidden onClick={(event) => { event.currentTarget.value = '' }} onChange={(event) => { const selectedFile = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void selectImage(selectedFile) }} />{imageUrl && <div className="review-image-preview"><img src={imageUrl} alt="첨부 사진 미리보기" /><button type="button" onClick={() => setImageUrl('')} disabled={submittingReview}>사진 제거</button></div>}<button type="button" className="image-attach-button" onClick={(event) => { event.stopPropagation(); fileRef.current?.click() }} disabled={submittingReview}><Icon name="camera" size={13} /> 사진 첨부</button>{reviewError && <p className="inline-error">{reviewError}</p>}<div className="review-form-actions"><button type="button" className="ghost-button" onClick={closeForm} disabled={submittingReview}>취소</button><button type="button" className="primary-button" onClick={() => void submitReview()} disabled={submittingReview}>{submittingReview ? '저장 중...' : '완료'}</button></div></div>}
       {!showReviewForm && <button type="button" className="ghost-button review-write" onClick={openReviewForm}><Icon name="camera" size={13} /> 리뷰 작성</button>}
       <div className="place-actions">{onCourseToggle && <button type="button" onClick={(event) => { event.stopPropagation(); onCourseToggle() }} className={inCourse ? 'ghost-button course-remove-button' : 'primary-button course-add-button'}>{inCourse ? <><Icon name="close" size={13} /> 코스에서 제거</> : <><Icon name="route" size={13} /> 코스에 추가</>}</button>}{onRemove && <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(place.id) }} className="ghost-button"><Icon name="close" size={13} /> 장소 빼기</button>}<a href={place.placeUrl || `https://map.kakao.com/?q=${encodeURIComponent(place.name)}`} target="_blank" rel="noreferrer" className="ghost-button" onClick={(event) => event.stopPropagation()}>지도에서 보기 <Icon name="arrow" size={13} /></a></div>
