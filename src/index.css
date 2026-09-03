@@ -856,15 +856,27 @@ input[type="date"] { color: #626a65; }
 /* Desktop results are compact enough to scan two recommended places at once. */
 @media (min-width: 761px) {
   .result-booking-shell .place-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .result-booking-shell .place-list > .place-card { grid-template-columns: 108px minmax(0, 1fr); block-size: 350px; min-block-size: 350px; max-block-size: 350px; }
-  .result-booking-shell .place-image { min-height: 350px; }
+  /* Two cards fit in one row, so a tall side image made the cards look squeezed.
+     Keep the image as a short landscape header instead. */
+  .result-booking-shell .place-list > .place-card { display: flex; flex-direction: column; grid-template-columns: none; block-size: 372px; min-block-size: 372px; max-block-size: 372px; }
+  .result-booking-shell .place-image { flex: 0 0 128px; height: 128px; min-height: 128px; }
   .result-booking-shell .place-body { padding: 13px; }
   .result-booking-shell .place-body h3 { font-size: 16px; }
   .result-booking-shell .place-description { -webkit-line-clamp: 2; }
   .result-booking-shell .reason-row { display: none; }
-  .result-booking-shell .save-button { width: 24px; height: 24px; top: 8px; right: 8px; }
-  .result-booking-shell .save-button svg { width: 12px; height: 12px; }
+  .result-booking-shell .save-button { width: 30px; height: 30px; top: 9px; right: 9px; }
+  .result-booking-shell .save-button svg { width: 14px; height: 14px; }
 }
+
+/* Compact, friendly image labels for recommendation cards. */
+.result-booking-shell .place-image { background-position: center; }
+.result-booking-shell .place-image::before { content: ''; position: absolute; z-index: 0; top: -24px; right: -20px; width: 88px; height: 88px; border: 1px solid rgba(255,255,255,.22); border-radius: 50%; box-shadow: -28px 38px 0 -1px rgba(255,255,255,.1); pointer-events: none; }
+.result-booking-shell .place-number { top: 10px; left: 10px; width: 27px; height: 27px; border: 2px solid rgba(255,255,255,.88); background: #2878f0; box-shadow: 0 3px 8px rgba(16,61,126,.24); font-family: 'DM Mono', 'Noto Sans KR', sans-serif; font-size: 11px; font-weight: 800; }
+.result-booking-shell .place-category { bottom: 10px; left: 10px; gap: 4px; max-width: calc(100% - 20px); padding: 5px 8px; overflow: hidden; border: 1px solid rgba(255,255,255,.32); border-radius: 999px; background: rgba(20,32,52,.48); backdrop-filter: blur(5px); color: #fff; font-size: 10px; line-height: 1; text-overflow: ellipsis; white-space: nowrap; }
+.result-booking-shell .place-category svg { flex: 0 0 auto; }
+.result-booking-shell .save-button { border: 1px solid rgba(255,255,255,.9); box-shadow: 0 3px 10px rgba(19,42,75,.22); cursor: pointer; transition: transform .16s ease, background .16s ease; }
+.result-booking-shell .save-button:hover { transform: scale(1.08); background: #fff; }
+.result-booking-shell .save-button:active { transform: scale(.94); }
 
 @media (max-width: 520px) {
   .place-heading { align-items: flex-start; }
@@ -873,8 +885,9 @@ input[type="date"] { color: #626a65; }
   .review-modal article { max-height: 88vh; }
   .review-modal-list { max-height: calc(88vh - 54px); padding-inline: 15px; }
   .result-booking-shell .place-list > .place-card {
-    block-size: 470px;
-    min-block-size: 470px;
-    max-block-size: 470px;
+    block-size: 420px;
+    min-block-size: 420px;
+    max-block-size: 420px;
   }
+  .result-booking-shell .place-image { height: 132px; min-height: 132px; }
 }
