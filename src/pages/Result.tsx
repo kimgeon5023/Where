@@ -169,7 +169,10 @@ export default function Result() {
     // Do not call Kakao until a complete, validated request has been restored.
     if (!req) return
     const controller = new AbortController()
-    const timer = window.setTimeout(() => {
+    let retryTimer: number | undefined
+    let attempts = 0
+    const loadPlaces = () => {
+      retryTimer = undefined
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
@@ -181,15 +184,22 @@ export default function Result() {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
-        setApiPlaces([])
-        setHasMore(false)
-        setApiError(error instanceof Error && error.message
-          ? error.message
-          : '카카오 장소 정보를 불러오지 못했어요. 잠시 후 다시 시도해주세요.')
+        // Render can briefly be unavailable while waking or redeploying. Keep
+        // the last successful list on screen instead of making every card vanish.
+        if (attempts < 2 && !controller.signal.aborted) {
+          attempts += 1
+          retryTimer = window.setTimeout(loadPlaces, attempts * 2_000)
+          setApiError('추천 장소 연결이 잠시 지연되고 있어요. 기존 목록은 유지하며 다시 연결 중입니다.')
+          return
+        }
+        setApiError('추천 장소 연결이 잠시 지연되고 있어요. 현재 목록은 유지했습니다. 잠시 후 다시 시도해 주세요.')
       })
-      .finally(() => setLoading(false))
-    }, 300)
-    return () => { window.clearTimeout(timer); controller.abort() }
+      .finally(() => {
+        if (retryTimer === undefined) setLoading(false)
+      })
+    }
+    const timer = window.setTimeout(loadPlaces, 300)
+    return () => { window.clearTimeout(timer); if (retryTimer !== undefined) window.clearTimeout(retryTimer); controller.abort() }
   }, [req, selectedTags, userLocation, keyword, searchRevision, searchPage])
 
   const filterRequest = useMemo(() => req ? { ...req, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter])
