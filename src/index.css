@@ -289,6 +289,8 @@ input[type="date"] { color: #626a65; }
 .score-badge strong, .score-badge small { display: block; }
 .score-badge strong { color: var(--green); font: 800 20px 'Manrope', sans-serif; }
 .score-badge small { color: #a4aca3; font-size: 9px; }
+.review-quick-action { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; min-height: 31px; padding: 7px 9px; border: 1px solid #b9d4fb; border-radius: 9px; background: #f4f8ff; color: #2878f0; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.review-quick-action:hover { border-color: #2878f0; background: #eaf3ff; }
 .place-description { margin: 11px 0 14px; color: #777f78; font-size: 12px; line-height: 1.65; }
 .place-meta { display: flex; flex-wrap: wrap; gap: 7px; }
 .place-meta span { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 5px; background: #f4f7f3; color: #737c73; font: 10px 'DM Mono', monospace; }
@@ -827,6 +829,7 @@ input[type="date"] { color: #626a65; }
 .review-detail p { margin: 7px 0; white-space: pre-wrap; line-height: 1.7; overflow-wrap: anywhere; }
 .review-detail > img { display: block; width: 100%; max-height: 440px; margin: 14px 0; border-radius: 10px; object-fit: contain; background: #f4f6f4; }
 .review-detail .danger-text { margin-left: 9px; }
+.review-modal-error { margin: 12px 20px 0; }
 
 /* Recommendation cards stay compact: only one short review preview is visible. */
 .place-card .review-list { margin-top: 11px; padding: 8px 10px; }
@@ -862,6 +865,7 @@ input[type="date"] { color: #626a65; }
 /* The next review action stays in the visible review header, never below the card. */
 .review-add-inline { float: right; display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: #2878f0; font-size: 10px; font-weight: 800; cursor: pointer; }
 .result-booking-shell .review-list + .review-write { display: none; }
+.result-booking-shell .review-write { display: none; }
 .result-booking-shell .place-body:has(.review-list) .place-actions { padding-bottom: 10px; }
 
 /* Keep a compact recommendation card fixed while the full editor opens above it. */
