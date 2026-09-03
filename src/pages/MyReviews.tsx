@@ -28,6 +28,7 @@ export default function MyReviews() {
   useEffect(() => {
     if (!user?.token) return
     let active = true
+    let retryTimer: number | undefined
     const loadAllReviews = async () => {
       try {
         const all: Review[] = []
@@ -39,11 +40,18 @@ export default function MyReviews() {
           all.push(...batch)
           if (batch.length < 50) break
         }
-        if (active) setReviews(all)
-      } catch (error) { if (active) setMessage(error instanceof Error ? error.message : '리뷰를 불러오지 못했습니다.') } finally { if (active) setLoading(false) }
+        if (active) { setReviews(all); setMessage('') }
+      } catch (error) {
+        if (active) {
+          setMessage(error instanceof Error ? error.message : '리뷰를 불러오지 못했습니다.')
+          // Render may need a moment to wake up. Keep the user's page open and
+          // show previously written reviews as soon as the API is reachable.
+          retryTimer = window.setTimeout(() => { void loadAllReviews() }, 8_000)
+        }
+      } finally { if (active) setLoading(false) }
     }
     void loadAllReviews()
-    return () => { active = false }
+    return () => { active = false; if (retryTimer) window.clearTimeout(retryTimer) }
   }, [user?.token])
 
   if (!user) return <Navigate to="/" replace />
