@@ -830,10 +830,16 @@ input[type="date"] { color: #626a65; }
 .place-card .review-preview img { grid-column: 2; grid-row: 1 / span 3; float: none; width: 42px; height: 42px; margin: 0 0 0 8px; }
 .place-card .review-more { margin-top: 4px; }
 
+/* Review writing belongs in an overlay so a place card never grows while editing. */
+.place-card .review-form { position: fixed; z-index: 31; top: 50%; left: 50%; width: min(440px, calc(100vw - 32px)); max-height: min(78vh, 620px); margin: 0; overflow-y: auto; box-shadow: 0 18px 52px rgba(22, 30, 26, .28); transform: translate(-50%, -50%); }
+.result-booking-shell .place-card { max-height: 420px; }
+.result-booking-shell .place-body { min-height: 0; overflow: hidden; }
+
 @media (max-width: 520px) {
   .place-heading { align-items: flex-start; }
   .manual-course-actions { width: 100%; justify-content: flex-start; }
   .trip-basic-fields { grid-template-columns: 1fr; }
   .review-modal article { max-height: 88vh; }
   .review-modal-list { max-height: calc(88vh - 54px); padding-inline: 15px; }
+  .result-booking-shell .place-card { max-height: 470px; }
 }
