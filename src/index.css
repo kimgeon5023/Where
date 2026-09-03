@@ -722,6 +722,11 @@ input[type="date"] { color: #626a65; }
 .result-booking-shell .day-tabs button.selected small { color: #d8e8ff; }
 .result-booking-shell .route-card { padding: 26px; border-radius: 15px; }
 .result-booking-shell .route-weather { display: inline-flex; align-items: center; gap: 5px; background: #edf4ff; color: #2878f0; }
+.gps-distance-status { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; color: #7b8799; font-size: 10px; }
+.gps-distance-status i { width: 7px; height: 7px; border-radius: 50%; background: #aab6c6; }
+.gps-distance-status.is-live { color: #2878f0; }
+.gps-distance-status.is-live i { background: #2fc275; box-shadow: 0 0 0 4px rgba(47,194,117,.14); animation: map-live-pulse 1.8s ease-in-out infinite; }
+.result-booking-shell .timeline-gps-distance { display: block; margin-top: 4px; color: #2878f0; font-size: 10px; font-weight: 700; }
 .result-booking-shell .route-summary { border-color: #dae8fb; background: #f2f7ff; color: #58718f; }
 .result-booking-shell .route-summary strong { color: #2878f0; }
 .result-booking-shell .timeline-dot { border-color: #bdd7ff; background: #eaf3ff; color: #2878f0; }

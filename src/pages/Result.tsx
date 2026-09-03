@@ -59,6 +59,21 @@ function dateLabel(date: string) {
   return value.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', weekday: 'short' })
 }
 
+type LiveLocation = { lat: number; lng: number; accuracy: number; updatedAt: number }
+
+function distanceInMeters(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
+  const radians = (value: number) => value * Math.PI / 180
+  const earthRadius = 6_371_000
+  const latitudeDelta = radians(destination.lat - origin.lat)
+  const longitudeDelta = radians(destination.lng - origin.lng)
+  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(origin.lat)) * Math.cos(radians(destination.lat)) * Math.sin(longitudeDelta / 2) ** 2
+  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function formatGpsDistance(meters: number) {
+  return meters < 1_000 ? `${Math.round(meters)}m` : `${(meters / 1_000).toFixed(2)}km`
+}
+
 function daysBetween(start: string, end: string) {
   const diff = Math.round((new Date(end).getTime() - new Date(start).getTime()) / 86400000) + 1
   return Math.max(1, Math.min(3, diff || 1))
@@ -124,6 +139,7 @@ export default function Result() {
   const [searchPage, setSearchPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [liveLocation, setLiveLocation] = useState<LiveLocation | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
   const [recommendationSeed] = useState(() => Math.random())
@@ -165,11 +181,14 @@ export default function Result() {
     if (!navigator.geolocation) return
     const watchId = navigator.geolocation.watchPosition((position) => {
       const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+      // Keep every GPS update for the distance shown to the user. The separate
+      // userLocation state below remains deliberately less chatty for API search.
+      setLiveLocation({ ...next, accuracy: Math.round(position.coords.accuracy), updatedAt: Date.now() })
       // GPS watch callbacks can arrive repeatedly with small accuracy jitter.
       // Do not abort and restart the place request unless the user has moved
       // roughly 200m, otherwise a result page can stay in a retry loop.
       setUserLocation((current) => current && Math.abs(current.lat - next.lat) < 0.002 && Math.abs(current.lng - next.lng) < 0.002 ? current : next)
-    }, undefined, { enableHighAccuracy: true, maximumAge: 30000 })
+    }, () => setLiveLocation(null), { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 })
     return () => navigator.geolocation.clearWatch(watchId)
   }, [])
 
@@ -245,6 +264,7 @@ export default function Result() {
   }, [persistedCourseDays, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
+  const gpsDistances = useMemo(() => new Map(currentCourse.map((stop) => [stop.place.id, liveLocation ? distanceInMeters(liveLocation, stop.place) : null])), [currentCourse, liveLocation])
   const saveCourse = useCallback(async (isPublic: boolean) => {
     if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
     if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소가 없습니다.' }); return }
@@ -372,8 +392,9 @@ export default function Result() {
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
+            <div className={'gps-distance-status' + (liveLocation ? ' is-live' : '')}>{liveLocation ? <><i /> 내 GPS 위치 기준 · 정확도 ±{Math.max(1, liveLocation.accuracy)}m</> : 'GPS 위치를 확인하는 중이에요.'}</div>
             <div className="route-summary">{route ? <><strong>실시간 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 실시간 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
-            <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span>{index < currentCourse.length - 1 && <small>다음 장소까지 약 {index % 2 === 0 ? 12 : 8}분</small>}</div></div>)}</div>
+            <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span><small className="timeline-gps-distance">{liveLocation ? `내 위치에서 ${formatGpsDistance(gpsDistances.get(stop.place.id) || 0)} · GPS 직선거리` : 'GPS 위치를 가져오는 중이에요.'}</small></div></div>)}</div>
           </div>
           <div className="section-heading place-heading"><div><h2>추천 장소</h2>{isManualCourseEditing && <small className="manual-course-hint">직접 코스에 {persistedCourseDays.flat().length}곳을 담았어요. 카드에서 추가하거나 제거할 수 있어요.</small>}</div><div className="manual-course-actions">{isManualCourseEditing ? <><button type="button" className="ghost-button" onClick={cancelManualCourse} disabled={tripActionBusy}>취소</button><button type="button" className="primary-button" onClick={() => void completeManualCourse()} disabled={tripActionBusy}>{tripActionBusy ? '저장 중...' : '완료하고 저장'}</button></> : <button type="button" className="primary-button" onClick={startManualCourse}>코스 직접 짜기</button>}<span className="result-count">현재 {recommended.length}곳 표시</span></div></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>필터로 원하는 장소만 둘러보세요</strong><p>선택한 테마에 맞는 실제 장소만 목록과 지도에 표시합니다.</p></div></div>
@@ -384,7 +405,7 @@ export default function Result() {
           )}
           <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
-        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 서비스 후기 평균 TOP 1~3</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
+        <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={liveLocation ?? userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 서비스 후기 평균 TOP 1~3</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
       </section>
       <footer className="home-footer">© 2026 갈래말래 · 서울에서 발견하는 나만의 하루</footer>
       <BottomNav />
