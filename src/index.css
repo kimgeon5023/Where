@@ -832,7 +832,7 @@ input[type="date"] { color: #626a65; }
 
 /* Review writing belongs in an overlay so a place card never grows while editing. */
 .place-card .review-form { position: fixed; z-index: 31; top: 50%; left: 50%; width: min(440px, calc(100vw - 32px)); max-height: min(78vh, 620px); margin: 0; overflow-y: auto; box-shadow: 0 18px 52px rgba(22, 30, 26, .28); transform: translate(-50%, -50%); }
-.result-booking-shell .place-card { max-height: 420px; }
+.result-booking-shell .place-card { height: 380px; max-height: none; }
 .result-booking-shell .place-body { min-height: 0; overflow: hidden; }
 
 @media (max-width: 520px) {
@@ -841,5 +841,5 @@ input[type="date"] { color: #626a65; }
   .trip-basic-fields { grid-template-columns: 1fr; }
   .review-modal article { max-height: 88vh; }
   .review-modal-list { max-height: calc(88vh - 54px); padding-inline: 15px; }
-  .result-booking-shell .place-card { max-height: 470px; }
+  .result-booking-shell .place-card { height: 470px; max-height: none; }
 }
