@@ -34,7 +34,9 @@ export default function MyReviews() {
         const all: Review[] = []
         for (let page = 1; ; page += 1) {
           const response = await fetch(apiUrl(`/api/my/reviews?page=${page}&limit=50`), { headers: { Authorization: `Bearer ${user.token}` } })
-          const body = await response.json() as { data?: Review[]; error?: string }
+          const raw = await response.text()
+          let body: { data?: Review[]; error?: string } = {}
+          try { body = JSON.parse(raw) as { data?: Review[]; error?: string } } catch { /* Render wake responses can be HTML. */ }
           if (!response.ok) throw new Error(body.error || '리뷰를 불러오지 못했습니다.')
           const batch = body.data || []
           all.push(...batch)
@@ -46,12 +48,15 @@ export default function MyReviews() {
           setMessage(error instanceof Error ? error.message : '리뷰를 불러오지 못했습니다.')
           // Render may need a moment to wake up. Keep the user's page open and
           // show previously written reviews as soon as the API is reachable.
-          retryTimer = window.setTimeout(() => { void loadAllReviews() }, 8_000)
+          retryTimer = window.setTimeout(() => { void loadAllReviews() }, 2_000)
         }
       } finally { if (active) setLoading(false) }
     }
+    const refreshOnReviewSave = () => { void loadAllReviews() }
+    window.addEventListener('where:review-saved', refreshOnReviewSave)
+    window.addEventListener('focus', refreshOnReviewSave)
     void loadAllReviews()
-    return () => { active = false; if (retryTimer) window.clearTimeout(retryTimer) }
+    return () => { active = false; if (retryTimer) window.clearTimeout(retryTimer); window.removeEventListener('where:review-saved', refreshOnReviewSave); window.removeEventListener('focus', refreshOnReviewSave) }
   }, [user?.token])
 
   if (!user) return <Navigate to="/" replace />

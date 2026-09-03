@@ -848,6 +848,19 @@ input[type="date"] { color: #626a65; }
   overflow: hidden;
 }
 
+/* Desktop results are compact enough to scan two recommended places at once. */
+@media (min-width: 761px) {
+  .result-booking-shell .place-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-booking-shell .place-list > .place-card { grid-template-columns: 108px minmax(0, 1fr); block-size: 350px; min-block-size: 350px; max-block-size: 350px; }
+  .result-booking-shell .place-image { min-height: 350px; }
+  .result-booking-shell .place-body { padding: 13px; }
+  .result-booking-shell .place-body h3 { font-size: 16px; }
+  .result-booking-shell .place-description { -webkit-line-clamp: 2; }
+  .result-booking-shell .reason-row { display: none; }
+  .result-booking-shell .save-button { width: 24px; height: 24px; top: 8px; right: 8px; }
+  .result-booking-shell .save-button svg { width: 12px; height: 12px; }
+}
+
 @media (max-width: 520px) {
   .place-heading { align-items: flex-start; }
   .manual-course-actions { width: 100%; justify-content: flex-start; }
