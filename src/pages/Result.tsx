@@ -161,7 +161,13 @@ export default function Result() {
 
   useEffect(() => {
     if (!navigator.geolocation) return
-    const watchId = navigator.geolocation.watchPosition((position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }), undefined, { enableHighAccuracy: true, maximumAge: 30000 })
+    const watchId = navigator.geolocation.watchPosition((position) => {
+      const next = { lat: position.coords.latitude, lng: position.coords.longitude }
+      // GPS watch callbacks can arrive repeatedly with small accuracy jitter.
+      // Do not abort and restart the place request unless the user has moved
+      // roughly 200m, otherwise a result page can stay in a retry loop.
+      setUserLocation((current) => current && Math.abs(current.lat - next.lat) < 0.002 && Math.abs(current.lng - next.lng) < 0.002 ? current : next)
+    }, undefined, { enableHighAccuracy: true, maximumAge: 30000 })
     return () => navigator.geolocation.clearWatch(watchId)
   }, [])
 
