@@ -54,7 +54,18 @@ export async function searchRoute(params: RouteRequest, signal?: AbortSignal): P
   if (previous) return previous
   const response = await fetch(apiUrl('/api/route'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(params), signal,
-  })
-  if (!response.ok) throw new Error(await response.json().then((body) => body.error || '경로를 불러오지 못했습니다.').catch(() => '경로를 불러오지 못했습니다.'))
-  return remember(routeCache, key, await response.json() as RouteResponse, routeCacheMaxEntries)
+  }).catch(() => null)
+  if (response?.ok) return remember(routeCache, key, await response.json() as RouteResponse, routeCacheMaxEntries)
+
+  // Keep road distance available even while Render is waking or its routing
+  // provider is not configured. OSRM also returns a fastest driving route.
+  if (params.transport !== 'car') throw new Error('차량 경로만 계산할 수 있습니다.')
+  const points = [params.origin, ...params.stops].map((point) => `${point.lng},${point.lat}`).join(';')
+  const fallback = await fetch(`https://router.project-osrm.org/route/v1/driving/${points}?overview=full&geometries=geojson&steps=false`, { signal })
+  if (!fallback.ok) throw new Error('빠른 도로 경로를 불러오지 못했습니다.')
+  const payload = await fallback.json() as { routes?: { distance: number; duration: number; geometry?: { coordinates?: [number, number][] } }[] }
+  const route = payload.routes?.[0]
+  const coordinates = route?.geometry?.coordinates?.map(([lng, lat]) => ({ lat, lng })) || []
+  if (!route || coordinates.length < 2) throw new Error('빠른 도로 경로를 찾지 못했습니다.')
+  return remember(routeCache, key, { data: { coordinates, distanceMeters: Math.round(route.distance), durationSeconds: Math.round(route.duration) } }, routeCacheMaxEntries)
 }
