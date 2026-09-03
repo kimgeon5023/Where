@@ -859,6 +859,14 @@ input[type="date"] { color: #626a65; }
 .result-booking-shell .place-body:has(.review-list) .review-write { position: absolute; right: 13px; bottom: 12px; z-index: 2; margin: 0; padding: 6px 9px; border-radius: 999px; background: #f4f8ff; color: #2878f0; }
 .result-booking-shell .place-body:has(.review-list) .place-actions { padding-bottom: 38px; }
 
+/* The next review action stays in the visible review header, never below the card. */
+.review-add-inline { float: right; display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: #2878f0; font-size: 10px; font-weight: 800; cursor: pointer; }
+.result-booking-shell .review-list + .review-write { display: none; }
+.result-booking-shell .place-body:has(.review-list) .place-actions { padding-bottom: 10px; }
+
+/* Keep a compact recommendation card fixed while the full editor opens above it. */
+.result-booking-shell .review-form { position: fixed; z-index: 45; top: 50%; left: 50%; box-sizing: border-box; width: min(420px, calc(100vw - 32px)); max-height: min(78vh, 580px); margin: 0; overflow: auto; transform: translate(-50%, -50%); border-color: #cddff7; background: #fff; box-shadow: 0 22px 60px rgba(28, 48, 78, .28); }
+
 /* Desktop results are compact enough to scan two recommended places at once. */
 @media (min-width: 761px) {
   .result-booking-shell .place-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
