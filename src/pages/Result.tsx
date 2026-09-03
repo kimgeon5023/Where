@@ -60,15 +60,7 @@ function dateLabel(date: string) {
 }
 
 type LiveLocation = { lat: number; lng: number; accuracy: number; updatedAt: number }
-
-function distanceInMeters(origin: { lat: number; lng: number }, destination: { lat: number; lng: number }) {
-  const radians = (value: number) => value * Math.PI / 180
-  const earthRadius = 6_371_000
-  const latitudeDelta = radians(destination.lat - origin.lat)
-  const longitudeDelta = radians(destination.lng - origin.lng)
-  const a = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(origin.lat)) * Math.cos(radians(destination.lat)) * Math.sin(longitudeDelta / 2) ** 2
-  return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
+type RoadRouteMetric = { distanceMeters: number; durationSeconds: number }
 
 function formatGpsDistance(meters: number) {
   return meters < 1_000 ? `${Math.round(meters)}m` : `${(meters / 1_000).toFixed(2)}km`
@@ -140,6 +132,7 @@ export default function Result() {
   const [hasMore, setHasMore] = useState(false)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [liveLocation, setLiveLocation] = useState<LiveLocation | null>(null)
+  const [roadLocation, setRoadLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [keyword, setKeyword] = useState('')
   const [searchRevision, setSearchRevision] = useState(0)
   const [recommendationSeed] = useState(() => Math.random())
@@ -147,6 +140,7 @@ export default function Result() {
   const [route, setRoute] = useState<RouteResponse['data'] | null>(null)
   const [routeStatus, setRouteStatus] = useState('')
   const [routeRevision, setRouteRevision] = useState(0)
+  const [roadRoutes, setRoadRoutes] = useState<Map<string, RoadRouteMetric>>(new Map())
   const { favorites, isFavorite, toggleFavorite } = useFavorites()
   const { user } = useAuth()
   const { trips, refreshTrips } = useTrips()
@@ -184,11 +178,14 @@ export default function Result() {
       // Keep every GPS update for the distance shown to the user. The separate
       // userLocation state below remains deliberately less chatty for API search.
       setLiveLocation({ ...next, accuracy: Math.round(position.coords.accuracy), updatedAt: Date.now() })
+      // Recalculate road routes after meaningful movement without sending a
+      // directions request for small GPS jitter.
+      setRoadLocation((current) => current && Math.abs(current.lat - next.lat) < 0.00025 && Math.abs(current.lng - next.lng) < 0.00025 ? current : next)
       // GPS watch callbacks can arrive repeatedly with small accuracy jitter.
       // Do not abort and restart the place request unless the user has moved
       // roughly 200m, otherwise a result page can stay in a retry loop.
       setUserLocation((current) => current && Math.abs(current.lat - next.lat) < 0.002 && Math.abs(current.lng - next.lng) < 0.002 ? current : next)
-    }, () => setLiveLocation(null), { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 })
+    }, () => { setLiveLocation(null); setRoadLocation(null) }, { enableHighAccuracy: true, maximumAge: 0, timeout: 12_000 })
     return () => navigator.geolocation.clearWatch(watchId)
   }, [])
 
@@ -264,7 +261,6 @@ export default function Result() {
   }, [persistedCourseDays, scored])
   const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
-  const gpsDistances = useMemo(() => new Map(currentCourse.map((stop) => [stop.place.id, liveLocation ? distanceInMeters(liveLocation, stop.place) : null])), [currentCourse, liveLocation])
   const saveCourse = useCallback(async (isPublic: boolean) => {
     if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
     if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소가 없습니다.' }); return }
@@ -348,6 +344,22 @@ export default function Result() {
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [req, coursePlaces, userLocation, routeRevision])
 
+  useEffect(() => {
+    if (!roadLocation || coursePlaces.length === 0) { setRoadRoutes(new Map()); return }
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      const results = await Promise.allSettled(coursePlaces.slice(0, 5).map(async (place) => {
+        const response = await searchRoute({ origin: roadLocation, stops: [{ lat: place.lat, lng: place.lng }], transport: 'car' }, controller.signal)
+        return [place.id, { distanceMeters: response.data.distanceMeters, durationSeconds: response.data.durationSeconds }] as const
+      }))
+      if (controller.signal.aborted) return
+      const next = new Map<string, RoadRouteMetric>()
+      results.forEach((result) => { if (result.status === 'fulfilled') next.set(result.value[0], result.value[1]) })
+      setRoadRoutes(next)
+    }, 700)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [coursePlaces, roadLocation])
+
   if (!req) {
     return <main className="app-shell result-shell"><section className="search-feedback form-error" role="alert"><span>추천 조건을 복원하지 못했습니다. 지역과 여행 조건을 다시 선택해 주세요.</span><Link to="/" className="ghost-button">조건 설정으로 이동</Link></section></main>
   }
@@ -393,8 +405,8 @@ export default function Result() {
           <div className="route-card">
             <div className="route-card-top"><div><span className="route-kicker">DAY {day + 1} · {dateLabel(day === 0 ? req.dateStart : req.dateEnd)}</span><h3>오늘은 {req.start === '서울' ? '서울 곳곳' : req.start}에서 놀아보세요</h3></div><span className="route-weather"><Icon name={weather.icon} size={13} /> {weather.temp}</span></div>
             <div className={'gps-distance-status' + (liveLocation ? ' is-live' : '')}>{liveLocation ? <><i /> 내 GPS 위치 기준 · 정확도 ±{Math.max(1, liveLocation.accuracy)}m</> : 'GPS 위치를 확인하는 중이에요.'}</div>
-            <div className="route-summary">{route ? <><strong>실시간 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 실시간 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
-            <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span><small className="timeline-gps-distance">{liveLocation ? `내 위치에서 ${formatGpsDistance(gpsDistances.get(stop.place.id) || 0)} · GPS 직선거리` : 'GPS 위치를 가져오는 중이에요.'}</small></div></div>)}</div>
+            <div className="route-summary">{route ? <><strong>실시간 빠른 차량 경로</strong><span>{(route.distanceMeters / 1000).toFixed(1)}km · 약 {Math.max(1, Math.round(route.durationSeconds / 60))}분</span></> : <><span>{routeStatus || '장소를 고르면 빠른 경로를 계산해요.'}</span>{req.transport === 'car' && routeStatus.includes('불러오지') && <button type="button" className="ghost-button" onClick={() => setRouteRevision((value) => value + 1)}>다시 시도</button>}</>}</div>
+            <div className="timeline">{currentCourse.length === 0 && <p className="empty-route">조건에 맞는 장소가 없어요. 취향을 조금만 바꿔볼까요?</p>}{currentCourse.map((stop, index) => { const road = roadRoutes.get(stop.place.id); return <div className={'timeline-item' + (dragOverIndex === index ? ' drag-over' : '')} key={stop.place.id} draggable onDragStart={() => handleDragStart(index)} onDragOver={(e) => handleDragOver(e, index)} onDrop={() => handleDrop(index)} onDragEnd={() => { setDragIndex(null); setDragOverIndex(null) }} style={{ cursor: 'grab', opacity: dragIndex === index ? 0.4 : 1, transition: 'opacity .15s, background .15s' }}><div className="timeline-time">{stop.time}</div><div className="timeline-line"><span className="timeline-dot"><Icon name={categoryIcons[stop.place.category]} size={14} /></span>{index < currentCourse.length - 1 && <i />}</div><div className="timeline-content"><strong>{stop.place.name}</strong><span>{stop.place.area} · {stop.place.description}</span><small className="timeline-gps-distance">{!liveLocation ? 'GPS 위치를 가져오는 중이에요.' : road ? `내 위치에서 ${formatGpsDistance(road.distanceMeters)} · 약 ${Math.max(1, Math.round(road.durationSeconds / 60))}분 · 차량 빠른길` : '차량 빠른길을 계산하는 중이에요.'}</small></div></div> })}</div>
           </div>
           <div className="section-heading place-heading"><div><h2>추천 장소</h2>{isManualCourseEditing && <small className="manual-course-hint">직접 코스에 {persistedCourseDays.flat().length}곳을 담았어요. 카드에서 추가하거나 제거할 수 있어요.</small>}</div><div className="manual-course-actions">{isManualCourseEditing ? <><button type="button" className="ghost-button" onClick={cancelManualCourse} disabled={tripActionBusy}>취소</button><button type="button" className="primary-button" onClick={() => void completeManualCourse()} disabled={tripActionBusy}>{tripActionBusy ? '저장 중...' : '완료하고 저장'}</button></> : <button type="button" className="primary-button" onClick={startManualCourse}>코스 직접 짜기</button>}<span className="result-count">현재 {recommended.length}곳 표시</span></div></div>
           <div className="ai-insight"><Icon name="spark" size={20} /><div><strong>필터로 원하는 장소만 둘러보세요</strong><p>선택한 테마에 맞는 실제 장소만 목록과 지도에 표시합니다.</p></div></div>
