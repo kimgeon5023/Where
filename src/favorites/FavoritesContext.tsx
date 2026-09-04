@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { createFavorite, getFavorites, removeFavorite, type FavoriteRecord } from '../lib/favoritesApi'
-import { clearLegacyFavorites, getLegacyFavorites } from '../lib/legacyFavorites'
+import { clearLegacyFavorites, getFavoriteSnapshot, getLastFavoriteSnapshot, getLegacyFavorites, saveFavoriteSnapshot } from '../lib/legacyFavorites'
 import type { Category, Place } from '../types'
 
 interface FavoritesContextValue {
@@ -49,7 +49,9 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!user?.token) {
-      setFavorites([])
+      // Keep the most recently signed-in account's list available on this device
+      // after sign-out. A subsequent sign-in always replaces it with that account's list.
+      setFavorites(getLastFavoriteSnapshot())
       setFavoritesLoading(false)
       setLegacyFavorites([])
       return
@@ -61,9 +63,14 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     setLegacyFavorites(getLegacyFavorites())
     setFavoritesLoading(true)
     getFavorites(user.token, controller.signal)
-      .then((data) => { if (active) setFavorites(data.map(favoriteToPlace)) })
+      .then((data) => {
+        if (!active) return
+        const places = data.map(favoriteToPlace)
+        setFavorites(places)
+        saveFavoriteSnapshot(user.id, places)
+      })
       .catch((error: unknown) => {
-        if (active && !(error instanceof DOMException && error.name === 'AbortError')) setFavorites([])
+        if (active && !(error instanceof DOMException && error.name === 'AbortError')) setFavorites(getFavoriteSnapshot(user.id))
       })
       .finally(() => { if (active) setFavoritesLoading(false) })
     return () => { active = false; controller.abort() }
@@ -75,18 +82,28 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     if (!user?.token) throw new Error('AUTH_REQUIRED')
     if (isFavorite(place.id)) {
       await removeFavorite(user.token, place.id)
-      setFavorites((current) => current.filter((item) => item.id !== place.id))
+      setFavorites((current) => {
+        const next = current.filter((item) => item.id !== place.id)
+        saveFavoriteSnapshot(user.id, next)
+        return next
+      })
       return
     }
     const favorite = await createFavorite(user.token, place)
-    setFavorites((current) => [favoriteToPlace(favorite), ...current.filter((item) => item.id !== place.id)])
+    setFavorites((current) => {
+      const next = [favoriteToPlace(favorite), ...current.filter((item) => item.id !== place.id)]
+      saveFavoriteSnapshot(user.id, next)
+      return next
+    })
   }, [isFavorite, user])
 
   const importLegacyFavorites = useCallback(async () => {
     if (!user?.token) throw new Error('AUTH_REQUIRED')
     for (const place of legacyFavorites) await createFavorite(user.token, place)
     const data = await getFavorites(user.token)
-    setFavorites(data.map(favoriteToPlace))
+    const places = data.map(favoriteToPlace)
+    setFavorites(places)
+    saveFavoriteSnapshot(user.id, places)
     clearLegacyFavorites()
     setLegacyFavorites([])
   }, [legacyFavorites, user])
