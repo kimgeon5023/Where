@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { searchPlaces, searchRoute, type RouteResponse } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
 import { useFavorites } from '../favorites/FavoritesContext'
-import type { Companion, Place, Tag, TripRequest } from '../types'
+import type { Place, Tag, TripRequest } from '../types'
 import Icon, { type IconName } from '../components/Icon'
 import MapView from '../components/MapView'
 import PlaceCard from '../components/PlaceCard'
@@ -46,16 +46,6 @@ const categoryIcons: Record<string, IconName> = { tour: 'nature', photo: 'photo'
 const searchCategories: { value: Tag; label: string }[] = [
   { value: 'cafe', label: '카페' }, { value: 'foodie', label: '맛집' }, { value: 'nature', label: '자연' },
   { value: 'activity', label: '액티비티' }, { value: 'shopping', label: '쇼핑' }, { value: 'rest', label: '휴식' },
-]
-const tasteOptions: { value: Tag; label: string }[] = [
-  { value: 'foodie', label: '맛집' }, { value: 'cafe', label: '카페' }, { value: 'nature', label: '자연' },
-  { value: 'activity', label: '액티비티' }, { value: 'shopping', label: '쇼핑' }, { value: 'rest', label: '휴식' },
-]
-const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
-  { value: 'friends', label: '친구와', icon: 'friends', caption: '함께 만드는 하루' },
-  { value: 'couple', label: '연인과', icon: 'heart', caption: '설레는 데이트' },
-  { value: 'family', label: '가족과', icon: 'family', caption: '편안한 나들이' },
-  { value: 'alone', label: '혼자', icon: 'person', caption: '나만의 시간' },
 ]
 type SortKey = 'score' | 'rating' | 'reviews' | 'distance'
 const sortOptions: { value: SortKey; label: string }[] = [
@@ -181,14 +171,6 @@ export default function Result() {
     setHasMore(false)
     setSearchPage(1)
     setDay(0)
-  }
-  const updateReq = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => {
-    setReq((current) => {
-      if (!current) return current
-      const next = { ...current, [key]: value }
-      try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(next)) } catch { /* storage is optional */ }
-      return next
-    })
   }
 
   useEffect(() => {
@@ -428,16 +410,6 @@ export default function Result() {
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
-            <div className="result-pref-row" aria-label="세부 여행 조건">
-              <div className="booking-companions" aria-label="누구와 가나요?">
-                {companions.map((item) => <button type="button" key={item.value} className={req.companion === item.value ? 'active' : ''} onClick={() => updateReq('companion', item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}
-              </div>
-              <label>인원 <input type="number" min="1" max="100" value={req.headcount} onChange={(event) => updateReq('headcount', Math.max(1, Math.min(100, Number(event.target.value) || 1)))} />명</label>
-              <label>1인 예산 <input type="text" inputMode="numeric" value={String(req.budgetPerPerson)} onChange={(event) => updateReq('budgetPerPerson', Number(event.target.value.replace(/[^0-9]/g, '')) || 0)} />원</label>
-              <div className="tag-list" aria-label="여행 취향">
-                {tasteOptions.map((taste) => <button type="button" key={taste.value} className={'tag-chip' + (req.likes.includes(taste.value) ? ' active' : '')} onClick={() => updateReq('likes', req.likes.includes(taste.value) ? req.likes.filter((value) => value !== taste.value) : [...req.likes, taste.value])}>{taste.label}</button>)}
-              </div>
-            </div>
           </div>
           {filterError && <p className="result-filter-error" role="alert">{filterError}</p>}
           {budgetFilter > 0 && <p className="result-filter-status" aria-live="polite">1인 전체 예산 {budgetFilter.toLocaleString()}원 · 교통비 {transportBudget.toLocaleString()}원을 제외한 장소를 추천해요.</p>}

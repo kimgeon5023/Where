@@ -1,13 +1,20 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import Icon from '../components/Icon'
+import Icon, { type IconName } from '../components/Icon'
 import AuthActions from '../components/AuthActions'
 import BottomNav from '../components/BottomNav'
 import MapView from '../components/MapView'
 import { useFavorites } from '../favorites/FavoritesContext'
 import { isSeoulDistrict, SEOUL_DISTRICTS } from '../lib/seoulDistricts'
 import { useTrips } from '../trips/TripsContext'
-import type { TripRequest } from '../types'
+import type { Companion, TripRequest } from '../types'
+
+const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
+  { value: 'friends', label: '친구와', icon: 'friends', caption: '함께 만드는 하루' },
+  { value: 'couple', label: '연인과', icon: 'heart', caption: '설레는 데이트' },
+  { value: 'family', label: '가족과', icon: 'family', caption: '편안한 나들이' },
+  { value: 'alone', label: '혼자', icon: 'person', caption: '나만의 시간' },
+]
 
 function localDateValue(date = new Date()) {
   const year = date.getFullYear()
@@ -65,7 +72,7 @@ export default function Home() {
     </section>
     <section className="booking-hero" aria-labelledby="hero-title">
       <div className="booking-orbit booking-orbit-one" /><div className="booking-orbit booking-orbit-two" />
-      <div className="booking-hero-copy"><p className="booking-kicker"><span /> SEOUL TRIP PLANNER</p><h1 id="hero-title">이번 주말,<br /><strong>어디로 갈까요?</strong></h1><p>지역과 일정만 고르면<br />결과 화면에서 원하는 테마의 서울 장소를 자유롭게 둘러볼 수 있어요.</p><div className="booking-hero-points"><span><Icon name="check" size={15} /> 서울 지역 검색</span><span><Icon name="check" size={15} /> 결과에서 세부 필터</span></div></div>
+      <div className="booking-hero-copy"><p className="booking-kicker"><span /> SEOUL TRIP PLANNER</p><h1 id="hero-title">이번 주말,<br /><strong>어디로 갈까요?</strong></h1><p>지역과 일정, 동행만 고르면<br />결과 화면에서 원하는 테마의 서울 장소를 자유롭게 둘러볼 수 있어요.</p><div className="booking-hero-points"><span><Icon name="check" size={15} /> 서울 지역 검색</span><span><Icon name="check" size={15} /> 결과에서 세부 필터</span></div></div>
       <div className="booking-hero-ticket" aria-hidden="true"><div className="ticket-top"><span>WEEKEND PASS</span><Icon name="route" size={19} /></div><strong>SEOUL<br />ESCAPE</strong><div className="ticket-route"><span>NOW</span><i /><span>GO</span></div></div>
     </section>
     <section id="planner" className="booking-planner" aria-label="여행 코스 조건">
@@ -76,7 +83,7 @@ export default function Home() {
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 도착일</span><input type="date" min={request.dateStart || today} value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></label>
         <button type="button" className="planner-search" onClick={submit}>코스 찾기 <Icon name="arrow" size={18} /></button>
       </div>
-      {error && <p className="booking-form-error">{error}</p>}
+      <div className="planner-preferences"><div className="planner-preference-row"><span className="preference-label">누구와 가나요?</span><div className="booking-companions">{companions.map((item) => <button type="button" key={item.value} className={request.companion === item.value ? 'active' : ''} onClick={() => update('companion', item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}</div></div>{error && <p className="booking-form-error">{error}</p>}</div>
     </section>
     <footer className="booking-footer"><span className="booking-brand-mark">갈</span><p>나에게 꼭 맞는 서울의 하루를 찾아보세요.</p><span>© 2026 갈래말래</span></footer>
     <BottomNav />
