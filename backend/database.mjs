@@ -190,11 +190,22 @@ export async function initializeDatabase() {
       id UUID PRIMARY KEY,
       user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       place_id TEXT NOT NULL,
+      place_name VARCHAR(255) NOT NULL DEFAULT '',
       rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
       content TEXT NOT NULL CHECK (char_length(content) <= 1000),
+      image_url TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `)
+  await database.query(`ALTER TABLE place_reviews ADD COLUMN IF NOT EXISTS place_name VARCHAR(255) NOT NULL DEFAULT ''`)
+  await database.query(`ALTER TABLE place_reviews ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT ''`)
+  await database.query(`
+    UPDATE place_reviews r
+    SET place_name = f.place_name
+    FROM favorites f
+    WHERE (r.place_name IS NULL OR r.place_name = '')
+      AND f.user_id = r.user_id AND f.place_id = r.place_id
   `)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_place_created_idx ON place_reviews (place_id, created_at DESC)`)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_created_idx ON place_reviews (created_at DESC)`)
@@ -416,7 +427,7 @@ export async function listReviews({ placeId, page, limit }) {
   const offsetIndex = placeId ? '$3' : '$2'
   const [reviews, total] = await Promise.all([
     database.query(
-      `SELECT r.id, r.place_id, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
+      `SELECT r.id, r.place_id, COALESCE(NULLIF(r.place_name, ''), f.place_name, r.place_id) AS place_name, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
         u.id AS user_id, u.name AS user_name, u.profile_image AS user_profile_image
        FROM place_reviews r LEFT JOIN users u ON u.id = r.user_id
        ${where}
@@ -433,9 +444,10 @@ export async function listUserReviews({ userId, page, limit }) {
   const paging = paginationValues(page, limit)
   const [reviews, total] = await Promise.all([
     database.query(
-      `SELECT r.id, r.place_id, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
+      `SELECT r.id, r.place_id, r.place_name, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
         u.id AS user_id, u.name AS user_name, u.profile_image AS user_profile_image
        FROM place_reviews r LEFT JOIN users u ON u.id = r.user_id
+       LEFT JOIN favorites f ON f.user_id = r.user_id AND f.place_id = r.place_id
        WHERE r.user_id = $1
        ORDER BY r.created_at DESC
        LIMIT $2 OFFSET $3`,
@@ -446,12 +458,12 @@ export async function listUserReviews({ userId, page, limit }) {
   return { data: reviews.rows, pagination: { ...paging, total: total.rows[0].count } }
 }
 
-export async function createPlaceReview({ userId, placeId, rating, content, imageUrl = '' }) {
+export async function createPlaceReview({ userId, placeId, placeName, rating, content, imageUrl = '' }) {
   const result = await database.query(
-    `INSERT INTO place_reviews (id, user_id, place_id, rating, content, image_url)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, place_id, rating, content, image_url, created_at, updated_at`,
-    [randomUUID(), userId, placeId, rating, content, imageUrl],
+    `INSERT INTO place_reviews (id, user_id, place_id, place_name, rating, content, image_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id, place_id, place_name, rating, content, image_url, created_at, updated_at`,
+    [randomUUID(), userId, placeId, placeName, rating, content, imageUrl],
   )
   return result.rows[0]
 }

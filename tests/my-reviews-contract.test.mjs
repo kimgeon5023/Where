@@ -10,6 +10,14 @@ test('my reviews endpoint is authenticated and limited to the signed-in user', (
   assert.match(server, /listUserReviews\(\{ userId, page:/)
   assert.match(database, /WHERE r\.user_id = \$1/)
   assert.match(database, /place_reviews_user_created_idx/)
+  assert.match(database, /COALESCE\(NULLIF\(r\.place_name, ''\), f\.place_name, r\.place_id\) AS place_name/)
+})
+
+test('reviews persist and return the place name used when writing the review', () => {
+  assert.match(server, /const placeName = typeof input\.placeName/)
+  assert.match(server, /createPlaceReview\(\{ userId, placeId, placeName, rating, content, imageUrl \}\)/)
+  assert.match(database, /place_name VARCHAR\(255\) NOT NULL DEFAULT ''/)
+  assert.match(database, /INSERT INTO place_reviews \(id, user_id, place_id, place_name, rating, content, image_url\)/)
 })
 
 test('review edits validate input and enforce review ownership', () => {

@@ -8,7 +8,7 @@ const card = await readFile(new URL('../src/components/PlaceCard.tsx', import.me
 test('reviews accept a photo without text and persist its data URL', () => {
   assert.match(card, /!reviewText\.trim\(\) && !imageUrl/)
   assert.match(server, /if \(!content && !imageUrl\)/)
-  assert.match(server, /createPlaceReview\(\{ userId, placeId, rating, content, imageUrl \}\)/)
+  assert.match(server, /createPlaceReview\(\{ userId, placeId, placeName, rating, content, imageUrl \}\)/)
 })
 
 test('review image payloads have matching client and API limits', () => {

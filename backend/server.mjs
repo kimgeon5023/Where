@@ -697,7 +697,8 @@ createServer(async (request, response) => {
       if (!content && !imageUrl) return sendJson(response, 400, { error: '후기 내용 또는 사진을 첨부해 주세요.' })
       if (content.length > 1000 || !isValidReviewImage || !Number.isInteger(rating) || rating < 1 || rating > 5) return sendJson(response, 400, { error: '후기 내용, 사진, 1~5점 별점을 확인해 주세요.' })
       const placeId = decodeURIComponent(url.pathname.split('/')[3])
-      const review = await createPlaceReview({ userId, placeId, rating, content, imageUrl })
+      if (!placeName) return sendJson(response, 400, { error: 'INVALID_PLACE_NAME' })
+      const review = await createPlaceReview({ userId, placeId, placeName, rating, content, imageUrl })
       const [summary] = await getPlaceReviewSummaries([placeId])
       return sendJson(response, 201, { data: { ...review, summary: summary || { placeId, rating, reviewCount: 1 } } })
     } catch (error) {
@@ -712,6 +713,7 @@ createServer(async (request, response) => {
       const content = typeof input.content === 'string' ? input.content.trim() : ''
       const rating = Number(input.rating)
       const imageUrl = typeof input.imageUrl === 'string' ? input.imageUrl.trim() : ''
+      const placeName = typeof input.placeName === 'string' ? input.placeName.trim().slice(0, 255) : ''
       const isValidReviewImage = !imageUrl || (imageUrl.length <= maxReviewImageDataUrlLength && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl))
       if (!content && !imageUrl) return sendJson(response, 400, { error: 'REVIEW_CONTENT_OR_IMAGE_REQUIRED' })
       if (content.length > 1000 || !isValidReviewImage || !Number.isInteger(rating) || rating < 1 || rating > 5) return sendJson(response, 400, { error: 'INVALID_REVIEW_INPUT' })

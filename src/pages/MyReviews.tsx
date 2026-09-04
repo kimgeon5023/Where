@@ -106,7 +106,7 @@ export default function MyReviews() {
         {loading ? <p className="review-empty">리뷰를 불러오는 중이에요.</p> : reviews.length === 0 ? <p className="review-empty">아직 작성한 리뷰가 없어요. 추천 장소에서 첫 리뷰를 남겨 보세요.</p> : <div className="my-review-list">{reviews.map((review) => {
           const isEditing = editingId === review.id
           return <article className={`my-review-item${isEditing ? ' is-editing' : ''}`} key={review.id}>
-            <div className="my-review-meta"><strong>{review.place_name || '이전 등록 장소'}</strong><span>{new Date(review.created_at).toLocaleDateString('ko-KR')}</span></div>
+            <div className="my-review-meta"><strong>{review.place_name || review.place_id}</strong><span>{new Date(review.created_at).toLocaleDateString('ko-KR')}</span></div>
             {isEditing ? <>
               <div className="star-picker">{[1, 2, 3, 4, 5].map((star) => <button type="button" key={star} onClick={() => setDraftRating(star)}>{star <= draftRating ? '★' : '☆'}</button>)}</div>
               <textarea value={draftContent} maxLength={1000} rows={5} onChange={(event) => setDraftContent(event.target.value)} />
