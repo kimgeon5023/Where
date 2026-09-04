@@ -1,11 +1,10 @@
-import type { Category, Companion, Place, Tag, TripRequest } from '../types'
+import type { Category, Companion, Place, Tag } from '../types'
 import { apiUrl } from './api'
 
-export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; tags?: Tag[]; page?: number; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
+export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; tags?: Tag[]; includeLodging?: boolean; maxPrice?: number; page?: number; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
 export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string; source?: string; page?: number; hasMore?: boolean } }
 export type RouteResponse = { data: { coordinates: { lat: number; lng: number }[]; distanceMeters: number; durationSeconds: number } }
 export type RouteRequest = { origin: { lat: number; lng: number }; stops: { lat: number; lng: number }[]; transport: 'car' | 'public' }
-export type TravelPlanResponse = { data: { recommendations: { place: Place; score: number; fitScore: number; detail: { label: string; max: number; value: number }[]; reasons: string[] }[]; itineraries: { time: string; emoji: string; place: Place }[][]; budget: { items: { label: string; cost: number }[]; total: number; perPerson: number; estimated: boolean } }; meta: PlacesResponse['meta'] }
 
 const cacheTtlMs = 3 * 60 * 1000
 const searchCacheMaxEntries = 80
@@ -37,7 +36,7 @@ export async function searchPlaces(params: PlaceSearchParams, signal?: AbortSign
   const query = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (Array.isArray(value) && value.length) query.set(key, value.join(','))
-    else if (value !== undefined && value !== '') query.set(key, String(value))
+    else if (value !== undefined && value !== '' && value !== false) query.set(key, String(value))
   })
   const key = query.toString()
   const previous = cached(searchCache, key)
@@ -69,11 +68,4 @@ export async function searchRoute(params: RouteRequest, signal?: AbortSignal): P
   const coordinates = route?.geometry?.coordinates?.map(([lng, lat]) => ({ lat, lng })) || []
   if (!route || coordinates.length < 2) throw new Error('빠른 도로 경로를 찾지 못했습니다.')
   return remember(routeCache, key, { data: { coordinates, distanceMeters: Math.round(route.distance), durationSeconds: Math.round(route.duration) } }, routeCacheMaxEntries)
-}
-
-export async function createTravelPlan(input: { conditions: TripRequest; search: { query?: string; themes?: Tag[]; page?: number; limit?: number; origin?: { lat: number; lng: number }; radius?: number }; excludedPlaceIds?: string[]; seed?: number }, signal?: AbortSignal): Promise<TravelPlanResponse> {
-  const response = await fetch(apiUrl('/api/travel-plan'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal })
-  const body = await response.json().catch(() => null) as TravelPlanResponse & { error?: string } | null
-  if (!response.ok || !body?.data || !Array.isArray(body.data.recommendations)) throw new Error(body?.error || '추천 여행 계획을 만들지 못했습니다.')
-  return body
 }

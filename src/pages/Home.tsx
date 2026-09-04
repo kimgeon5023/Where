@@ -7,17 +7,13 @@ import MapView from '../components/MapView'
 import { useFavorites } from '../favorites/FavoritesContext'
 import { isSeoulDistrict, SEOUL_DISTRICTS } from '../lib/seoulDistricts'
 import { useTrips } from '../trips/TripsContext'
-import type { Companion, Tag, TripRequest } from '../types'
+import type { Companion, TripRequest } from '../types'
 
 const companions: { value: Companion; label: string; icon: IconName; caption: string }[] = [
   { value: 'friends', label: '친구와', icon: 'friends', caption: '함께 만드는 하루' },
   { value: 'couple', label: '연인과', icon: 'heart', caption: '설레는 데이트' },
   { value: 'family', label: '가족과', icon: 'family', caption: '편안한 나들이' },
   { value: 'alone', label: '혼자', icon: 'person', caption: '나만의 시간' },
-]
-const tastes: { value: Tag; label: string }[] = [
-  { value: 'foodie', label: '맛집' }, { value: 'cafe', label: '카페' }, { value: 'nature', label: '자연' },
-  { value: 'activity', label: '액티비티' }, { value: 'shopping', label: '쇼핑' }, { value: 'rest', label: '휴식' },
 ]
 
 function localDateValue(date = new Date()) {
@@ -87,7 +83,7 @@ export default function Home() {
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 도착일</span><input type="date" min={request.dateStart || today} value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></label>
         <button type="button" className="planner-search" onClick={submit}>코스 찾기 <Icon name="arrow" size={18} /></button>
       </div>
-      <div className="planner-preferences"><div className="planner-preference-row"><span className="preference-label">누구와 가나요?</span><div className="booking-companions">{companions.map((item) => <button type="button" key={item.value} className={request.companion === item.value ? 'active' : ''} onClick={() => update('companion', item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}</div></div><div className="planner-preference-row planner-budget-row"><label>인원 <input type="number" min="1" max="100" value={request.headcount} onChange={(event) => update('headcount', Math.max(1, Math.min(100, Number(event.target.value) || 1)))} />명</label><label>1인 예산 <input type="text" inputMode="numeric" value={String(request.budgetPerPerson)} onChange={(event) => update('budgetPerPerson', Number(event.target.value.replace(/[^0-9]/g, '')) || 0)} />원</label></div><div className="planner-preference-row"><span className="preference-label">여행 취향</span><div className="tag-list">{tastes.map((taste) => <button type="button" key={taste.value} className={'tag-chip' + (request.likes.includes(taste.value) ? ' active' : '')} onClick={() => update('likes', request.likes.includes(taste.value) ? request.likes.filter((value) => value !== taste.value) : [...request.likes, taste.value])}>{taste.label}</button>)}</div></div>{error && <p className="booking-form-error">{error}</p>}</div>
+      <div className="planner-preferences"><div className="planner-preference-row"><span className="preference-label">누구와 가나요?</span><div className="booking-companions">{companions.map((item) => <button type="button" key={item.value} className={request.companion === item.value ? 'active' : ''} onClick={() => update('companion', item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}</div></div>{error && <p className="booking-form-error">{error}</p>}</div>
     </section>
     <footer className="booking-footer"><span className="booking-brand-mark">갈</span><p>나에게 꼭 맞는 서울의 하루를 찾아보세요.</p><span>© 2026 갈래말래</span></footer>
     <BottomNav />

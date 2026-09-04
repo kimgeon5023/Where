@@ -70,6 +70,7 @@ function createProfileOverlay(kakao: KakaoNamespace, map: KakaoMap, position: Ka
 const categoryMarker = {
   cafe: { color: '#b66a36', path: '<path d="M5 9h12v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V9ZM17 11h1.5a2.5 2.5 0 0 1 0 5H17M8 4c0 1 1 1 1 2M12 4c0 1 1 1 1 2M16 4c0 1 1 1 1 2M4 21h15" />' },
   food: { color: '#d26a4b', path: '<path d="M4 3v8M7 3v8M4 7h3M5.5 11v10M15 3v18M15 3c3 2 3 6 0 8" />' },
+  lodging: { color: '#6579b8', path: '<path d="M4 19v-8M4 15h16v4M7 11V8h5a3 3 0 0 1 3 3M20 19v-6a2 2 0 0 0-2-2H4" />' },
   activity: { color: '#a365b4', path: '<circle cx="12" cy="12" r="8.5" /><path d="m10 8 5 4-5 4V8Z" />' },
   photo: { color: '#c58b36', path: '<rect x="3" y="5" width="18" height="15" rx="2" /><circle cx="8.5" cy="10" r="1.5" /><path d="m4 17 4.5-4 3.5 3 2.5-2 5.5 5" />' },
   tour: { color: '#2878f0', path: '<path d="M12 21V10" /><path d="M12 15c-4 0-6-2-6-6 4 0 6 2 6 6ZM12 13c0-4 2-6 6-6 0 4-2 6-6 6Z" />' },

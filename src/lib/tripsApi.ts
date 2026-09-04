@@ -53,7 +53,7 @@ export function toTripInput(request: TripRequest, places: Place[] | Place[][], t
     routeCoordinates: [], isPublic,
     stops: days.flatMap((day, dayIndex) => day.map((place) => ({
       placeId: place.id, placeName: place.name, category: place.category, area: place.area,
-      latitude: place.lat, longitude: place.lng, estimatedCost: place.estimatedCost || 0, durationMin: place.durationMin || 0,
+      latitude: place.lat, longitude: place.lng, estimatedCost: place.price || 0, durationMin: place.durationMin || 0,
       metadata: { place, dayIndex },
     }))),
   }

@@ -314,6 +314,7 @@ input[type="date"] { color: #626a65; }
 .detail-box { display: flex; flex-direction: column; gap: 4px; margin-top: 13px; padding: 10px 11px; border-radius: 8px; font-size: 11px; }
 .detail-box strong { font-size: 11px; }
 .detail-box span { color: #7f897f; font-size: 10px; }
+.lodging-detail { background: #eef5ff; color: #4774ac; }
 .menu-detail { background: #fff7ea; color: #b17835; }
 .place-actions { display: flex; gap: 8px; margin-top: 15px; }
 .ghost-button { display: flex; align-items: center; justify-content: center; gap: 5px; flex: 1; min-height: 33px; border: 1px solid #e4e9e3; border-radius: 7px; background: #fff; color: #858d85; font-size: 10px; }
@@ -446,6 +447,7 @@ input[type="date"] { color: #626a65; }
 :root.dark .score-badge strong { color: #3ecf96; }
 :root.dark .reason-row span { color: #3ecf96; }
 :root.dark .detail-box { background: #141e16; }
+:root.dark .lodging-detail { background: #141e28; color: #7ab3e0; }
 :root.dark .menu-detail { background: #281e14; color: #d4a060; }
 :root.dark .weather-live-icon { background: #282214; }
 :root.dark .map-label { background: rgba(26,36,28,.93); }
