@@ -427,7 +427,7 @@ export async function listReviews({ placeId, page, limit }) {
   const offsetIndex = placeId ? '$3' : '$2'
   const [reviews, total] = await Promise.all([
     database.query(
-      `SELECT r.id, r.place_id, COALESCE(NULLIF(r.place_name, ''), f.place_name, r.place_id) AS place_name, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
+      `SELECT r.id, r.place_id, COALESCE(NULLIF(r.place_name, ''), f.place_name) AS place_name, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
         u.id AS user_id, u.name AS user_name, u.profile_image AS user_profile_image
        FROM place_reviews r LEFT JOIN users u ON u.id = r.user_id
        ${where}

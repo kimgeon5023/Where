@@ -44,7 +44,11 @@ export default function MyReviews() {
           all.push(...batch)
           if (batch.length < 50) break
         }
-        if (active) { setReviews(all); writeCachedReviews(userId, all); setMessage(''); retryDelay = 2_000 }
+        if (active) {
+          const cachedById = new Map(readCachedReviews(userId).map((review) => [review.id, review]))
+          const resolved = all.map((review) => review.place_name ? review : { ...review, place_name: cachedById.get(review.id)?.place_name })
+          setReviews(resolved); writeCachedReviews(userId, resolved); setMessage(''); retryDelay = 2_000
+        }
       } catch (error) {
         if (active) {
           const status = (error as Error & { status?: number }).status
