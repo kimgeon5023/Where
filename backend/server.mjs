@@ -2,7 +2,7 @@ import { createServer } from 'node:http'
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, createTrip, deleteFavorite, deletePlaceReview, deleteTrip, deleteUser, ensureConfiguredAdmin, getPlaceReviewSummaries, getPublicTrip, getTrip, initializeDatabase, isAdminUser, listCourses, listFavorites, listFriends, listNotifications, listOtherUsers, listReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updateTrip, updateUserProfile, upsertFavorite, upsertGoogleUser } from './database.mjs'
+import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, createTrip, deleteFavorite, deletePlaceReview, deleteTrip, deleteUser, ensureConfiguredAdmin, getPlaceReviewSummaries, getPublicTrip, getTrip, initializeDatabase, isAdminUser, listCourses, listFavorites, listFriends, listNotifications, listOtherUsers, listReviews, listUserReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updatePlaceReview, updateTrip, updateUserProfile, upsertFavorite, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 import { allowedOrigin, allowedOrigins, createRateLimiter, requestIp } from './security.mjs'
 
@@ -673,6 +673,12 @@ createServer(async (request, response) => {
     const result = await listReviews({ placeId: url.searchParams.get('placeId') || '', page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
     return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
   }
+  if (request.method === 'GET' && url.pathname === '/api/my/reviews') {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: 'LOGIN_REQUIRED' })
+    const result = await listUserReviews({ userId, page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
+    return sendJson(response, 200, { ...result, pagination: { ...result.pagination, totalPages: Math.ceil(result.pagination.total / result.pagination.limit) } })
+  }
   if (request.method === 'GET' && /^\/api\/places\/[^/]+\/reviews$/.test(url.pathname)) {
     const placeId = decodeURIComponent(url.pathname.split('/')[3])
     const result = await listReviews({ placeId, page: url.searchParams.get('page'), limit: url.searchParams.get('limit') })
@@ -695,6 +701,24 @@ createServer(async (request, response) => {
       return sendJson(response, 201, { data: { ...review, summary: summary || { placeId, rating, reviewCount: 1 } } })
     } catch (error) {
       return sendJson(response, error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? '첨부 사진 용량이 너무 큽니다. 다른 사진을 선택해 주세요.' : '후기를 등록하지 못했습니다.' })
+    }
+  }
+  if (request.method === 'PUT' && /^\/api\/reviews\/[^/]+$/.test(url.pathname)) {
+    const userId = authenticatedUserId(request)
+    if (!userId) return sendJson(response, 401, { error: 'LOGIN_REQUIRED' })
+    try {
+      const input = await readJsonBody(request, maxReviewRequestBytes)
+      const content = typeof input.content === 'string' ? input.content.trim() : ''
+      const rating = Number(input.rating)
+      const imageUrl = typeof input.imageUrl === 'string' ? input.imageUrl.trim() : ''
+      const isValidReviewImage = !imageUrl || (imageUrl.length <= maxReviewImageDataUrlLength && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(imageUrl))
+      if (!content && !imageUrl) return sendJson(response, 400, { error: 'REVIEW_CONTENT_OR_IMAGE_REQUIRED' })
+      if (content.length > 1000 || !isValidReviewImage || !Number.isInteger(rating) || rating < 1 || rating > 5) return sendJson(response, 400, { error: 'INVALID_REVIEW_INPUT' })
+      const reviewId = decodeURIComponent(url.pathname.split('/').at(-1) || '')
+      return sendJson(response, 200, { data: await updatePlaceReview({ reviewId, userId, rating, content, imageUrl }) })
+    } catch (error) {
+      const status = error?.code === 'REVIEW_FORBIDDEN' ? 403 : error?.code === 'REVIEW_NOT_FOUND' ? 404 : error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 500
+      return sendJson(response, status, { error: error?.code || (status === 413 ? 'REQUEST_TOO_LARGE' : 'REVIEW_UPDATE_FAILED') })
     }
   }
   if (request.method === 'DELETE' && /^\/api\/reviews\/[^/]+$/.test(url.pathname)) {

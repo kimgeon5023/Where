@@ -198,6 +198,7 @@ export async function initializeDatabase() {
   `)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_place_created_idx ON place_reviews (place_id, created_at DESC)`)
   await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_created_idx ON place_reviews (created_at DESC)`)
+  await database.query(`CREATE INDEX IF NOT EXISTS place_reviews_user_created_idx ON place_reviews (user_id, created_at DESC)`)
 }
 
 function paginationValues(page, limit) {
@@ -428,12 +429,43 @@ export async function listReviews({ placeId, page, limit }) {
   return { data: reviews.rows, pagination: { ...paging, total: total.rows[0].count } }
 }
 
+export async function listUserReviews({ userId, page, limit }) {
+  const paging = paginationValues(page, limit)
+  const [reviews, total] = await Promise.all([
+    database.query(
+      `SELECT r.id, r.place_id, r.rating, r.content, r.image_url, r.created_at, r.updated_at,
+        u.id AS user_id, u.name AS user_name, u.profile_image AS user_profile_image
+       FROM place_reviews r LEFT JOIN users u ON u.id = r.user_id
+       WHERE r.user_id = $1
+       ORDER BY r.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [userId, paging.limit, paging.offset],
+    ),
+    database.query('SELECT COUNT(*)::INTEGER AS count FROM place_reviews WHERE user_id = $1', [userId]),
+  ])
+  return { data: reviews.rows, pagination: { ...paging, total: total.rows[0].count } }
+}
+
 export async function createPlaceReview({ userId, placeId, rating, content, imageUrl = '' }) {
   const result = await database.query(
     `INSERT INTO place_reviews (id, user_id, place_id, rating, content, image_url)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, place_id, rating, content, image_url, created_at, updated_at`,
     [randomUUID(), userId, placeId, rating, content, imageUrl],
+  )
+  return result.rows[0]
+}
+
+export async function updatePlaceReview({ reviewId, userId, rating, content, imageUrl }) {
+  const found = await database.query('SELECT user_id FROM place_reviews WHERE id = $1', [reviewId])
+  if (!found.rowCount) { const error = new Error('REVIEW_NOT_FOUND'); error.code = 'REVIEW_NOT_FOUND'; throw error }
+  if (found.rows[0].user_id !== userId) { const error = new Error('REVIEW_FORBIDDEN'); error.code = 'REVIEW_FORBIDDEN'; throw error }
+  const result = await database.query(
+    `UPDATE place_reviews
+     SET rating = $1, content = $2, image_url = $3, updated_at = NOW()
+     WHERE id = $4
+     RETURNING id, place_id, rating, content, image_url, created_at, updated_at`,
+    [rating, content, imageUrl, reviewId],
   )
   return result.rows[0]
 }

@@ -35,18 +35,28 @@ export default function MyReviews() {
           const raw = await response.text()
           let body: { data?: Review[]; error?: string } = {}
           try { body = JSON.parse(raw) as { data?: Review[]; error?: string } } catch { /* Render wake responses can be HTML. */ }
-          if (!response.ok) throw new Error(body.error || '리뷰를 불러오지 못했습니다.')
+          if (!response.ok) {
+            const failure = new Error(body.error || '리뷰를 불러오지 못했습니다.') as Error & { status?: number }
+            failure.status = response.status
+            throw failure
+          }
           const batch = body.data || []
           all.push(...batch)
           if (batch.length < 50) break
         }
         if (active) { setReviews(all); writeCachedReviews(userId, all); setMessage(''); retryDelay = 2_000 }
-      } catch {
+      } catch (error) {
         if (active) {
-          setMessage(cached.length || readCachedReviews(userId).length ? '리뷰 서버와 다시 연결 중이에요. 저장된 리뷰를 먼저 표시합니다.' : '리뷰 서버와 다시 연결 중이에요. 연결되면 작성한 리뷰가 자동으로 표시됩니다.')
-          if (retryTimer) window.clearTimeout(retryTimer)
-          retryTimer = window.setTimeout(() => { void loadAllReviews() }, retryDelay)
-          retryDelay = Math.min(15_000, retryDelay * 2)
+          const status = (error as Error & { status?: number }).status
+          const retryable = !status || status >= 500
+          setMessage(retryable
+            ? (cached.length || readCachedReviews(userId).length ? '리뷰 서버와 다시 연결 중이에요. 저장된 리뷰를 먼저 표시합니다.' : '리뷰 서버와 다시 연결 중이에요. 연결되면 작성한 리뷰가 자동으로 표시됩니다.')
+            : status === 401 ? '로그인 정보가 만료되었습니다. 다시 로그인해 주세요.' : '작성한 리뷰를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
+          if (retryable) {
+            if (retryTimer) window.clearTimeout(retryTimer)
+            retryTimer = window.setTimeout(() => { void loadAllReviews() }, retryDelay)
+            retryDelay = Math.min(15_000, retryDelay * 2)
+          }
         }
       } finally { if (active) setLoading(false) }
     }
