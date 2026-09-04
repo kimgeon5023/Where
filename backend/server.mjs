@@ -873,6 +873,7 @@ createServer(async (request, response) => {
       const result = await createTravelPlan(await readJsonBody(request, 96_000))
       return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
     } catch (error) {
+      console.error('Travel plan request failed:', error instanceof Error ? error.message : error)
       return sendJson(response, error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: 'TRAVEL_PLAN_REQUEST_FAILED' })
     }
   }
