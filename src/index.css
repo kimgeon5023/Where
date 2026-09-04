@@ -258,6 +258,8 @@ input[type="date"] { color: #626a65; }
 .saved-place-list .place-description { margin: 6px 0 8px; -webkit-line-clamp: 2; }
 .saved-place-list .reason-row { display: none; }
 .saved-place-list .place-actions { margin-top: 8px; }
+.saved-place-list .favorite-remove-button { color: #bd4b4b; }
+.saved-place-list .favorite-remove-button svg { fill: currentColor; }
 @media (max-width: 1120px) { .saved-place-list { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 820px) { .saved-place-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .saved-place-list { grid-template-columns: 1fr; }.saved-place-list .place-image { height: 140px; } }

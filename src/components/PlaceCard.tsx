@@ -42,7 +42,7 @@ async function readResponse<T>(response: Response): Promise<T> {
 
 const wait = (milliseconds: number) => new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds))
 
-export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, onSelect, onReviewSummary, inCourse = false, onCourseToggle }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void | Promise<void>; onSelect?: (id: string) => void; onReviewSummary?: (summary: ReviewSummary) => void; inCourse?: boolean; onCourseToggle?: () => void }) {
+export default function PlaceCard({ index, scored, onRemove, isSaved = false, onToggleSaved, showUnsaveAction = false, onSelect, onReviewSummary, inCourse = false, onCourseToggle }: { index: number; scored: ScoredPlace; onRemove?: (id: string) => void; isSaved?: boolean; onToggleSaved?: () => void | Promise<void>; showUnsaveAction?: boolean; onSelect?: (id: string) => void; onReviewSummary?: (summary: ReviewSummary) => void; inCourse?: boolean; onCourseToggle?: () => void }) {
   const { place } = scored
   const { user } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -54,6 +54,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
   const [selectedReview, setSelectedReview] = useState<Review | null>(null)
   const [reviewError, setReviewError] = useState('')
   const [favoriteError, setFavoriteError] = useState('')
+  const [updatingFavorite, setUpdatingFavorite] = useState(false)
   const [submittingReview, setSubmittingReview] = useState(false)
   const [deletingReviewId, setDeletingReviewId] = useState('')
 
@@ -135,8 +136,11 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
   const toggleSaved = async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
     if (!user?.token) return setFavoriteError('찜 기능은 로그인 후 이용할 수 있어요.')
+    if (updatingFavorite) return
+    setUpdatingFavorite(true)
     try { await onToggleSaved?.(); setFavoriteError('') }
     catch { setFavoriteError('찜 상태를 변경하지 못했습니다.') }
+    finally { setUpdatingFavorite(false) }
   }
 
   return <article className="place-card" onClick={() => onSelect?.(place.id)} style={{ cursor: onSelect ? 'pointer' : undefined }}>
@@ -144,7 +148,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
       {place.image && <img src={place.image} alt="" onError={(event) => { event.currentTarget.style.display = 'none' }} />}
       <span className="place-number">{index}</span>
       <span className="place-category"><Icon name={icons[place.category]} size={14} /> {labels[place.category]}</span>
-      <button type="button" className={'save-button' + (isSaved ? ' saved' : '')} aria-label={isSaved ? '찜 해제' : '찜하기'} onClick={toggleSaved}><Icon name="heart" size={16} /></button>
+      <button type="button" className={'save-button' + (isSaved ? ' saved' : '')} aria-label={isSaved ? '찜 해제' : '찜하기'} onClick={toggleSaved} disabled={updatingFavorite}><Icon name="heart" size={16} /></button>
     </div>
     <div className="place-body">
       <div className="place-title-row"><div><div className="place-area">{place.area} · {labels[place.category]}</div><h3>{place.name}</h3></div><button type="button" className="review-quick-action" onClick={openReviewForm}><Icon name="camera" size={13} /> 리뷰 작성</button></div>
@@ -155,7 +159,7 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
       {reviews.length > 0 && <div className="review-list">{reviews.slice(0, 1).map((review) => <button className="review-preview" type="button" key={review.id} aria-label="리뷰 전체 보기" onClick={(event) => { event.stopPropagation(); setSelectedReview(review) }}><strong>후기 {reviews.length}</strong><span className="review-stars">★ {review.rating}</span><p>{review.content}</p><span className="review-open-label">전체보기</span></button>)}</div>}
       {showReviewForm && <div className="review-form" onClick={(event) => event.stopPropagation()}><strong>방문 후기를 남겨주세요</strong><div className="star-picker">{[1, 2, 3, 4, 5].map((star) => <button key={star} type="button" onClick={() => setReviewRating(star)} disabled={submittingReview}>{star <= reviewRating ? '★' : '☆'}</button>)}</div><textarea value={reviewText} maxLength={1000} onChange={(event) => setReviewText(event.target.value)} placeholder="방문 후기를 남겨주세요." rows={3} disabled={submittingReview} /><input ref={fileRef} type="file" accept="image/*" hidden onClick={(event) => { event.currentTarget.value = '' }} onChange={(event) => { const selectedFile = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void selectImage(selectedFile) }} />{imageUrl && <div className="review-image-preview"><img src={imageUrl} alt="첨부 사진 미리보기" /><button type="button" onClick={() => setImageUrl('')} disabled={submittingReview}>사진 제거</button></div>}<button type="button" className="image-attach-button" onClick={(event) => { event.stopPropagation(); fileRef.current?.click() }} disabled={submittingReview}><Icon name="camera" size={13} /> 사진 첨부</button>{reviewError && <p className="inline-error">{reviewError}</p>}<div className="review-form-actions"><button type="button" className="ghost-button" onClick={closeForm} disabled={submittingReview}>취소</button><button type="button" className="primary-button" onClick={() => void submitReview()} disabled={submittingReview}>{submittingReview ? '저장 중...' : '완료'}</button></div></div>}
       {!showReviewForm && <button type="button" className="ghost-button review-write" onClick={openReviewForm}><Icon name="camera" size={13} /> 리뷰 작성</button>}
-      <div className="place-actions">{onCourseToggle && <button type="button" onClick={(event) => { event.stopPropagation(); onCourseToggle() }} className={inCourse ? 'ghost-button course-remove-button' : 'primary-button course-add-button'}>{inCourse ? <><Icon name="close" size={13} /> 코스에서 제거</> : <><Icon name="route" size={13} /> 코스에 추가</>}</button>}{onRemove && <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(place.id) }} className="ghost-button"><Icon name="close" size={13} /> 장소 빼기</button>}<a href={place.placeUrl || `https://map.kakao.com/?q=${encodeURIComponent(place.name)}`} target="_blank" rel="noreferrer" className="ghost-button" onClick={(event) => event.stopPropagation()}>지도에서 보기 <Icon name="arrow" size={13} /></a></div>
+      <div className="place-actions">{showUnsaveAction && <button type="button" onClick={toggleSaved} className="ghost-button favorite-remove-button" disabled={updatingFavorite}><Icon name="heart" size={13} /> {updatingFavorite ? '찜 해제 중...' : '찜 해제'}</button>}{onCourseToggle && <button type="button" onClick={(event) => { event.stopPropagation(); onCourseToggle() }} className={inCourse ? 'ghost-button course-remove-button' : 'primary-button course-add-button'}>{inCourse ? <><Icon name="close" size={13} /> 코스에서 제거</> : <><Icon name="route" size={13} /> 코스에 추가</>}</button>}{onRemove && <button type="button" onClick={(event) => { event.stopPropagation(); onRemove(place.id) }} className="ghost-button"><Icon name="close" size={13} /> 장소 빼기</button>}<a href={place.placeUrl || `https://map.kakao.com/?q=${encodeURIComponent(place.name)}`} target="_blank" rel="noreferrer" className="ghost-button" onClick={(event) => event.stopPropagation()}>지도에서 보기 <Icon name="arrow" size={13} /></a></div>
     </div>
     {selectedReview && <div className="review-modal" role="dialog" aria-modal="true" aria-label="리뷰 전체 보기" onClick={() => setSelectedReview(null)}><article onClick={(event) => event.stopPropagation()}><header><h3>방문자 리뷰 {reviews.length}개</h3><button type="button" className="modal-close" aria-label="리뷰 닫기" onClick={() => setSelectedReview(null)}>×</button></header>{reviewError && <p className="inline-error review-modal-error">{reviewError}</p>}<div className="review-modal-list">{[selectedReview, ...reviews.filter((review) => review.id !== selectedReview.id)].map((review) => <section className="review-detail" key={review.id}><span className="review-stars">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span><p>{review.content}</p>{review.image_url && <img src={review.image_url} alt="첨부된 리뷰 사진" />}<small>{review.user_name || '익명'} · {new Date(review.created_at).toLocaleDateString('ko-KR')}</small>{review.user_id === user?.id && <button type="button" className="danger-text" disabled={Boolean(deletingReviewId)} onClick={() => void deleteReview(review.id)}>{deletingReviewId === review.id ? '삭제 중...' : '삭제'}</button>}</section>)}</div></article></div>}
   </article>
