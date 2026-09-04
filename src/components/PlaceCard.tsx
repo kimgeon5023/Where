@@ -5,8 +5,8 @@ import { useAuth } from '../auth/AuthContext'
 import { apiUrl } from '../lib/api'
 import { rememberCachedReview, removeCachedReview } from '../lib/reviewCache'
 
-const labels: Record<string, string> = { tour: '명소', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티', lodging: '숙소' }
-const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
+const labels: Record<string, string> = { tour: '관광지', photo: '포토 스팟', cafe: '카페', food: '맛집', activity: '액티비티' }
+const icons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity' }
 interface ReviewSummary { placeId: string; rating: number; reviewCount: number }
 interface Review { id: string; place_id?: string; place_name?: string; user_id: string | null; user_name: string | null; content: string; rating: number; image_url?: string; created_at: string; summary?: ReviewSummary }
 

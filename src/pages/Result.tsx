@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { searchPlaces, searchRoute, type RouteResponse } from '../lib/placesApi'
+import { createTravelPlan, searchRoute, type RouteResponse } from '../lib/placesApi'
 import { buildItineraries, estimateBudget, recommend, type ScoredPlace, type ItineraryStop } from '../lib/scoring'
 import { useFavorites } from '../favorites/FavoritesContext'
 import type { Place, Tag, TripRequest } from '../types'
@@ -42,7 +42,7 @@ function readStoredTripRequest(): TripRequest | null {
 
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
 const weatherLabels: Record<TripRequest['weather'], { icon: IconName; label: string; temp: string; rain: string }> = { sunny: { icon: 'sun', label: '맑음', temp: '27°', rain: '강수확률 10%' }, cloudy: { icon: 'cloud', label: '구름 조금', temp: '25°', rain: '강수확률 20%' }, rain: { icon: 'rain', label: '비', temp: '22°', rain: '강수확률 70%' } }
-const categoryIcons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity', lodging: 'bed' }
+const categoryIcons: Record<string, IconName> = { tour: 'nature', photo: 'photo', cafe: 'cafe', food: 'food', activity: 'activity' }
 const searchCategories: { value: Tag; label: string }[] = [
   { value: 'cafe', label: '카페' }, { value: 'foodie', label: '맛집' }, { value: 'nature', label: '자연' },
   { value: 'activity', label: '액티비티' }, { value: 'shopping', label: '쇼핑' }, { value: 'rest', label: '휴식' },
@@ -123,9 +123,6 @@ export default function Result() {
   const [day, setDay] = useState(0)
   const [draftTags, setDraftTags] = useState<Tag[]>([])
   const [appliedTags, setAppliedTags] = useState<Tag[]>([])
-  const [budgetFilter, setBudgetFilter] = useState(0)
-  const [budgetInput, setBudgetInput] = useState('')
-  const [filterError, setFilterError] = useState('')
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
   const [apiError, setApiError] = useState('')
@@ -155,18 +152,8 @@ export default function Result() {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
-  const transportBudget = req ? (req.transport === 'car' ? 30_000 : 6_000) * dayCount : 0
-  const maxPlacePrice = budgetFilter > 0 ? Math.max(0, budgetFilter - transportBudget) : undefined
-
   const applyFilters = () => {
-    const nextBudget = budgetInput ? Number(budgetInput) : 0
-    if (!Number.isInteger(nextBudget) || (budgetInput !== '' && nextBudget < 1) || nextBudget > 10_000_000) {
-      setFilterError('예산은 1원부터 1,000만 원까지 입력해 주세요.')
-      return
-    }
-    setFilterError('')
     setAppliedTags(draftTags)
-    setBudgetFilter(nextBudget)
     setApiPlaces([])
     setHasMore(false)
     setSearchPage(1)
@@ -210,11 +197,12 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
-      .then(({ data, meta }) => {
-        setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
-        setHasMore(Boolean(meta.hasMore) && data.length > 0)
-        if (data.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
+      createTravelPlan({ conditions: req, search: { query: keyword.trim(), themes: appliedTags, page: searchPage, limit: 20, origin, radius: 6_000 }, excludedPlaceIds: excluded, seed: recommendationSeed }, controller.signal)
+      .then(({ data: plan, meta }) => {
+        const places = plan.recommendations.map((item) => item.place)
+        setApiPlaces((current) => searchPage === 1 ? places : [...current, ...places.filter((place) => !current.some((existing) => existing.id === place.id))])
+        setHasMore(Boolean(meta.hasMore) && places.length > 0)
+        if (places.length === 0) setApiError('이 조건과 지도 영역에서 찾은 장소가 없어요. 검색어 또는 지도를 바꿔보세요.')
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === 'AbortError') return
@@ -236,9 +224,9 @@ export default function Result() {
     }
     const timer = window.setTimeout(loadPlaces, 300)
     return () => { window.clearTimeout(timer); if (retryTimer !== undefined) window.clearTimeout(retryTimer); controller.abort() }
-  }, [req, appliedTags, maxPlacePrice, userLocation, keyword, searchRevision, searchPage])
+  }, [req, appliedTags, userLocation, keyword, searchRevision, searchPage, excluded, recommendationSeed])
 
-  const filterRequest = useMemo(() => req ? { ...req, likes: appliedTags, budgetPerPerson: budgetFilter } : null, [req, appliedTags, budgetFilter])
+  const filterRequest = useMemo(() => req ? { ...req, likes: appliedTags.length ? appliedTags : req.likes } : null, [req, appliedTags])
   const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => filterRequest ? buildItineraries(scored, filterRequest, dayCount, recommendationSeed) : [], [scored, filterRequest, dayCount, recommendationSeed])
@@ -332,7 +320,7 @@ export default function Result() {
   // through the “더보기” button below; every request remains limited to 20.
   const recommended = sortedScored
   const recommendedPlaces = recommended.map((item) => item.place)
-  const mapPlaces = (isManualCourseEditing ? coursePlaces : (recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces)).filter((place) => place.category !== 'lodging').slice(0, 40)
+  const mapPlaces = (isManualCourseEditing ? coursePlaces : (recommendedPlaces.length > 0 ? recommendedPlaces : coursePlaces)).slice(0, 40)
   const center: [number, number] = mapPlaces[0] ? [mapPlaces[0].lat, mapPlaces[0].lng] : [37.5668, 126.978]
   const weather = req ? weatherLabels[req.weather] : weatherLabels.sunny
 
@@ -405,14 +393,11 @@ export default function Result() {
             <div className="tag-list" aria-label="장소 카테고리 필터">
               {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (draftTags.includes(item.value) ? ' active' : '')} onClick={() => setDraftTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value])}>{item.label}</button>)}
             </div>
-            <label className="result-budget-filter">1인 전체 예산 <input type="text" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액 입력" aria-label="1인 전체 여행 예산" /><span>원</span></label>
             <button type="button" className="result-filter-apply" onClick={applyFilters}>적용</button>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
-          {filterError && <p className="result-filter-error" role="alert">{filterError}</p>}
-          {budgetFilter > 0 && <p className="result-filter-status" aria-live="polite">1인 전체 예산 {budgetFilter.toLocaleString()}원 · 교통비 {transportBudget.toLocaleString()}원을 제외한 장소를 추천해요.</p>}
           <label className="place-search-input"><Icon name="pin" size={15} /><input value={keyword} onChange={(event) => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword(event.target.value) }} placeholder="장소 또는 키워드로 검색" aria-label="장소 검색" />{keyword && <button type="button" onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword('') }} aria-label="검색어 지우기">×</button>}</label>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
@@ -428,7 +413,7 @@ export default function Result() {
           ) : (
             <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} inCourse={isManualCourseEditing && isInManualCourse(item.place.id)} onCourseToggle={isManualCourseEditing ? () => toggleManualPlace(item.place) : undefined} onReviewSummary={({ placeId, rating, reviewCount }) => setApiPlaces((current) => current.map((place) => place.id === placeId ? { ...place, rating, reviewCount } : place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
-          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong>{budgetFilter > 0 ? <><span>예산의 {Math.min(999, Math.round((budget.perPerson / budgetFilter) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / budgetFilter) * 100) + '%' }} /></div></> : <span>예산을 입력하면 한도 안의 코스를 추천해요.</span>}</div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
+          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>선택한 장소와 이동수단 기준의 추정 비용이에요.</span></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
         <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={liveLocation ?? userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 서비스 후기 평균 TOP 1~3</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
       </section>

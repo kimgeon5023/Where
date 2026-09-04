@@ -6,16 +6,9 @@ export type Tag =
   | 'cafe' | 'foodie' | 'photo' | 'nature' | 'activity' | 'shopping'
   | 'rest' | 'sea' | 'crowded' | 'noraebang' | 'pub' | 'sashimi'
 
-export type Category = 'tour' | 'photo' | 'cafe' | 'food' | 'activity' | 'lodging'
+export type Category = 'tour' | 'photo' | 'cafe' | 'food' | 'activity'
 
 export interface MenuItem { name: string; price: number }
-export interface LodgingInfo {
-  pricePerNight: number
-  capacity: number
-  parking: boolean
-  bed: string
-}
-
 export interface Place {
   id: string
   name: string
@@ -27,15 +20,15 @@ export interface Place {
   tags: Tag[]
   groupFit: Companion[]
   indoor: boolean
-  price: number
+  estimatedCost: number
   durationMin: number
   rating: number
   reviewCount?: number
+  operatingStatus?: 'open' | 'closed' | 'unknown'
   description: string
   image: string
   accent: string
   menu?: MenuItem[]
-  lodging?: LodgingInfo
   phone?: string
   placeUrl?: string
 }

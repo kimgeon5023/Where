@@ -6,6 +6,11 @@ import { fileURLToPath } from 'node:url'
 import { addFriend, authenticatePasswordUser, changePassword, createPasswordUser, createPlaceReview, createRelationshipRequest, createTrip, deleteFavorite, deletePlaceReview, deleteTrip, deleteUser, ensureConfiguredAdmin, getPlaceReviewSummaries, getPublicTrip, getTrip, initializeDatabase, isAdminUser, listCourses, listFavorites, listFriends, listNotifications, listOtherUsers, listReviews, listUserReviews, listUsers, respondToRelationshipRequest, searchSeoulAreas, siteId, updatePlaceReview, updateTrip, updateUserProfile, upsertFavorite, upsertGoogleUser } from './database.mjs'
 import { createGoogleAuthorizationUrl, fetchGoogleProfile } from './oauth.mjs'
 import { allowedOrigin, allowedOrigins, createRateLimiter, requestIp } from './security.mjs'
+import { estimateBudget } from './services/budget-service.mjs'
+import { buildItineraries } from './services/itinerary-service.mjs'
+import { kakaoCategoryCodes, livePlaceMeta, preferenceSearches, requestedSearchProfiles, searchableCategories, toPlace } from './services/place-service.mjs'
+import { recommendPlaces } from './services/recommendation-service.mjs'
+import { optimizePlaces, routeMinutes } from './services/route-service.mjs'
 
 const staticRoot = resolve(fileURLToPath(new URL('../dist/', import.meta.url)))
 const contentTypes = {
@@ -18,7 +23,6 @@ const contentTypes = {
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',
 }
-const searchableCategories = new Set(['food', 'cafe', 'tour', 'photo', 'lodging', 'activity'])
 const configuredPort = Number(process.env.PORT || 3001)
 const port = Number.isInteger(configuredPort) && configuredPort > 0 ? configuredPort : 3001
 const frontendUrl = (process.env.FRONTEND_URL?.trim() || 'http://localhost:5173').replace(/\/$/, '')
@@ -41,26 +45,8 @@ const authSecret = process.env.AUTH_TOKEN_SECRET || createHash('sha256').update(
 // comma-separated FRONTEND_URL setting.
 const corsOrigins = allowedOrigins({ frontendUrl: process.env.FRONTEND_URL || 'https://where-silk.vercel.app' })
 const rateLimiter = createRateLimiter()
-const kakaoCategoryCodes = { food: 'FD6', cafe: 'CE7', tour: 'AT4', photo: 'AT4', activity: 'CT1', lodging: 'AD5' }
-const kakaoCategoryKeywords = { food: '맛집', cafe: '카페', tour: '관광명소', photo: '사진 명소', activity: '놀거리', lodging: '숙소' }
-const livePlaceMeta = {
-  food: { tags: ['foodie'], groupFit: ['friends', 'couple', 'family', 'alone'] },
-  cafe: { tags: ['cafe', 'rest'], groupFit: ['friends', 'couple', 'alone'] },
-  tour: { tags: ['nature', 'photo', 'rest'], groupFit: ['friends', 'couple', 'family', 'alone'] },
-  photo: { tags: ['photo'], groupFit: ['friends', 'couple', 'alone'] },
-  activity: { tags: ['activity', 'shopping'], groupFit: ['friends', 'couple', 'family'] },
-  lodging: { tags: ['rest'], groupFit: ['friends', 'couple', 'family', 'alone'] },
-}
-const preferenceSearches = {
-  cafe: { category: 'cafe', categoryCode: 'CE7', tags: ['cafe', 'rest'] },
-  foodie: { category: 'food', categoryCode: 'FD6', tags: ['foodie'] },
-  photo: { category: 'photo', keyword: '사진 명소', tags: ['photo'] },
-  nature: { category: 'tour', keyword: '공원', tags: ['nature', 'photo', 'rest'] },
-  activity: { category: 'activity', categoryCode: 'CT1', tags: ['activity'] },
-  shopping: { category: 'activity', keyword: '쇼핑몰', tags: ['shopping'] },
-  rest: { category: 'tour', keyword: '산책로', tags: ['rest', 'nature'] },
-  lodging: { category: 'lodging', categoryCode: 'AD5', tags: ['rest'] },
-}
+const kakaoCategoryKeywords = { food: '맛집', cafe: '카페', tour: '관광명소', photo: '사진 명소', activity: '놀거리' }
+const allowedTags = new Set(['cafe', 'foodie', 'photo', 'nature', 'activity', 'shopping', 'rest', 'sea', 'crowded', 'noraebang', 'pub', 'sashimi'])
 const seoulDistrictCenters = {
   강남구: [37.5172, 127.0473], 강동구: [37.5301, 127.1238], 강북구: [37.6396, 127.0257], 강서구: [37.5509, 126.8495], 관악구: [37.4784, 126.9516], 광진구: [37.5385, 127.0823], 구로구: [37.4954, 126.8874], 금천구: [37.4569, 126.8955], 노원구: [37.6542, 127.0568], 도봉구: [37.6688, 127.0471], 동대문구: [37.5744, 127.0396], 동작구: [37.5124, 126.9393], 마포구: [37.5663, 126.9019], 서대문구: [37.5791, 126.9368], 서초구: [37.4837, 127.0324], 성동구: [37.5633, 127.0371], 성북구: [37.5894, 127.0167], 송파구: [37.5145, 127.1059], 양천구: [37.5170, 126.8664], 영등포구: [37.5264, 126.8962], 용산구: [37.5326, 126.9906], 은평구: [37.6027, 126.9291], 종로구: [37.5735, 126.9788], 중구: [37.5641, 126.9979], 중랑구: [37.6063, 127.0927],
 }
@@ -193,13 +179,6 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-function estimatedPrice(category, id) {
-  const hash = [...String(id)].reduce((value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0, 0)
-  const ranges = { food: [12_000, 38_000], cafe: [4_500, 13_000], tour: [0, 9_000], photo: [0, 12_000], activity: [8_000, 45_000], lodging: [90_000, 220_000] }
-  const [minimum, maximum] = ranges[category] || [0, 10_000]
-  return Math.round((minimum + ((hash % 1000) / 1000) * (maximum - minimum)) / 1000) * 1000
-}
-
 function createAuthToken(userId) {
   const payload = Buffer.from(JSON.stringify({ sub: userId, exp: Date.now() + 1000 * 60 * 60 * 24 * 14 })).toString('base64url')
   const signature = createHmac('sha256', authSecret).update(payload).digest('base64url')
@@ -285,12 +264,7 @@ function tripInput(input) {
 }
 
 function kakaoPlaceToPlace(item, category, origin, tags) {
-  const lat = Number(item.y); const lng = Number(item.x)
-  const distanceKm = Number(haversineKm(origin.lat, origin.lng, lat, lng).toFixed(2))
-  const metadata = livePlaceMeta[category] || livePlaceMeta.tour
-  const price = estimatedPrice(category, item.id)
-  const lodging = category === 'lodging' ? { pricePerNight: price, capacity: 2, parking: true, bed: '더블 또는 트윈' } : undefined
-  return { id: `kakao-${item.id}`, name: item.place_name, area: item.road_address_name || item.address_name || '서울', category: category || 'tour', lat, lng, tags: tags || metadata.tags, groupFit: metadata.groupFit, indoor: category !== 'tour' && category !== 'photo', price, durationMin: category === 'food' ? 70 : 60, rating: 0, description: item.category_name || item.place_name, image: '', accent: '#1d9b77', distanceKm, phone: item.phone || '', placeUrl: item.place_url || '', lodging }
+  return toPlace(item, category, origin, tags, (lat1, lng1, lat2, lng2) => Number(haversineKm(lat1, lng1, lat2, lng2).toFixed(2)))
 }
 
 function searchBounds(url) {
@@ -308,28 +282,15 @@ function isInBounds(place, bounds) {
   return !bounds || (place.lat >= bounds.south && place.lat <= bounds.north && place.lng >= bounds.west && place.lng <= bounds.east)
 }
 
-function requestedSearchProfiles(category, tags, includeLodging) {
-  if (category) {
-    const profile = Object.values(preferenceSearches).find((item) => item.category === category)
-    return profile ? [profile] : []
-  }
-  const selected = tags.map((tag) => preferenceSearches[tag]).filter(Boolean)
-  const unique = [...new Map(selected.map((profile) => [`${profile.category}:${profile.keyword || profile.categoryCode}`, profile])).values()]
-  if (includeLodging && !unique.some((profile) => profile.category === 'lodging')) unique.push(preferenceSearches.lodging)
-  // Accommodation is a separate result type. It must never appear in the
-  // ordinary explore list unless a caller explicitly asks for it.
-  return unique.length ? unique : [...searchableCategories].filter((item) => item !== 'lodging').map((item) => ({ category: item, categoryCode: kakaoCategoryCodes[item], tags: livePlaceMeta[item]?.tags || [] }))
-}
-
-async function searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags, includeLodging, maxPrice) {
+async function searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags) {
   if (!kakaoRestApiKey) throw new Error('KAKAO_PLACES_NOT_CONFIGURED')
   const selectedDistrict = seoulDistrictNames.has(area)
   const searchKeyword = keyword
   const districtCenter = selectedDistrict ? seoulDistrictCenters[area] : null
   const searchCenter = districtCenter ? { lat: districtCenter[0], lng: districtCenter[1] } : origin
   // "전체"는 동행 유형으로 좁히지 않고, 모든 화면 카테고리를 함께 검색한다.
-  // 각 카카오 응답에 카테고리를 보존해야 지도 핀도 맛집·카페·관광지·숙소·액티비티 아이콘으로 구분된다.
-  const profiles = requestedSearchProfiles(category, tags, includeLodging)
+  // 각 카카오 응답에 카테고리를 보존해 지도 핀을 장소 유형별로 구분한다.
+  const profiles = requestedSearchProfiles(category, tags)
   const perCategoryLimit = Math.min(15, Math.max(3, Math.ceil(limit / profiles.length) + 3))
   const radius = String(Math.min(Number(url.searchParams.get('radius') || 8000), 20000))
   const headers = { Authorization: `KakaoAK ${kakaoRestApiKey}` }
@@ -364,7 +325,6 @@ async function searchKakaoPlaces(url, category, keyword, area, companion, limit,
   if (responses.every((response) => response.failed)) throw new Error('KAKAO_PLACES_UNAVAILABLE')
   const data = [...new Map(responses.flatMap((response) => response.places).map((place) => [place.id, place])).values()]
     .filter((place) => isInBounds(place, bounds))
-    .filter((place) => maxPrice === null || place.price <= maxPrice)
     .sort((a, b) => a.distanceKm - b.distanceKm)
     .slice(0, limit)
   return { data, meta: { total: data.length, area: area || '서울', category: category || 'all', source: 'kakao', page, hasMore: responses.some((response) => !response.isEnd) } }
@@ -376,30 +336,23 @@ async function findPlaces(url) {
   const companion = url.searchParams.get('companion')?.trim() ?? ''
   const keyword = url.searchParams.get('q')?.trim().toLowerCase() ?? ''
   const tags = (url.searchParams.get('tags') || '').split(',').map((tag) => tag.trim()).filter((tag) => Object.hasOwn(preferenceSearches, tag))
-  const includeLodging = url.searchParams.get('includeLodging') === 'true'
-  const maxPriceParameter = url.searchParams.get('maxPrice')
-  const maxPrice = maxPriceParameter === null ? null : Number(maxPriceParameter)
   const requestedLimit = Number(url.searchParams.get('limit') ?? 24)
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 40)) : 24
   const requestedPage = Number(url.searchParams.get('page') ?? 1)
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.min(Math.floor(requestedPage), 45)) : 1
 
   if (category && !searchableCategories.has(category)) {
-    return { error: 'category must be food, cafe, tour, photo, lodging, or activity' }
+    return { error: 'category must be food, cafe, tour, photo, or activity' }
   }
   if (!seoulDistrictNames.has(area)) {
     return { error: 'area must be one of Seoul\'s 25 districts' }
   }
-  if (maxPrice !== null && (!Number.isInteger(maxPrice) || maxPrice < 0 || maxPrice > 10_000_000)) {
-    return { error: 'maxPrice must be an integer between 0 and 10000000' }
-  }
-
   const origin = { lat: Number(url.searchParams.get('lat')) || 37.5668, lng: Number(url.searchParams.get('lng')) || 126.978 }
   const bounds = searchBounds(url)
-  const cacheKey = JSON.stringify({ area, category, companion, keyword, tags, includeLodging, maxPrice, limit, page, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
+  const cacheKey = JSON.stringify({ area, category, companion, keyword, tags, limit, page, lat: origin.lat.toFixed(4), lng: origin.lng.toFixed(4), radius: url.searchParams.get('radius') || '', bounds, zoom: url.searchParams.get('zoom') || '' })
   const cached = fromCache(placesCache, cacheKey)
   try {
-    const result = cached || cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags, includeLodging, maxPrice), placesCacheMaxEntries)
+    const result = cached || cacheValue(placesCache, cacheKey, await searchKakaoPlaces(url, category, keyword, area, companion, limit, page, origin, bounds, tags), placesCacheMaxEntries)
     const summaries = await getPlaceReviewSummaries(result.data.map((place) => place.id))
     const summaryByPlace = new Map(summaries.map((summary) => [summary.placeId, summary]))
     return { ...result, data: result.data.map((place) => ({ ...place, ...(summaryByPlace.get(place.id) || { rating: 0, reviewCount: 0 }) })) }
@@ -502,21 +455,67 @@ function optimizeInput(input) {
   const normalized = places.map((place, index) => ({ ...place, lat: Number(place?.lat ?? place?.latitude), lng: Number(place?.lng ?? place?.longitude), durationMin: Math.max(0, Number(place?.durationMin) || 0), _index: index }))
   return normalized.every(validPoint) ? { value: { start, places: normalized, transport } } : { error: 'INVALID_OPTIMIZE_POINTS' }
 }
-function estimatedTravelMinutes(a, b, transport) { return Math.max(1, haversineKm(a.lat, a.lng, b.lat, b.lng) / (transport === 'walk' ? 4.5 : transport === 'public' ? 18 : 32) * 60) }
-function routeMinutes(start, places, transport) { return places.reduce((total, place, index) => total + estimatedTravelMinutes(index ? places[index - 1] : start, place, transport), 0) }
-function optimizePlaces(start, places, transport) {
-  if (places.length <= 8) { let best = null; const visit = (remaining, ordered) => { if (!remaining.length) { const minutes = routeMinutes(start, ordered, transport); if (!best || minutes < best.minutes) best = { ordered, minutes }; return }; for (let index = 0; index < remaining.length; index += 1) visit([...remaining.slice(0, index), ...remaining.slice(index + 1)], [...ordered, remaining[index]]) }; visit(places, []); return best.ordered }
-  const remaining = [...places]; const ordered = []; let current = start
-  while (remaining.length) { const nextIndex = remaining.reduce((best, place, index) => estimatedTravelMinutes(current, place, transport) < estimatedTravelMinutes(current, remaining[best], transport) ? index : best, 0); current = remaining.splice(nextIndex, 1)[0]; ordered.push(current) }
-  let improved = true
-  while (improved) { improved = false; for (let i = 0; i < ordered.length - 1; i += 1) for (let j = i + 1; j < ordered.length; j += 1) { const candidate = [...ordered.slice(0, i), ...ordered.slice(i, j + 1).reverse(), ...ordered.slice(j + 1)]; if (routeMinutes(start, candidate, transport) + 0.01 < routeMinutes(start, ordered, transport)) { ordered.splice(0, ordered.length, ...candidate); improved = true } } }
-  return ordered
-}
 async function optimizeRoute(input) {
   const validation = optimizeInput(input); if ('error' in validation) return { ...validation, status: 400 }
   const { start, places, transport } = validation.value; const ordered = optimizePlaces(start, places, transport); const route = await findRoute({ origin: start, stops: ordered, transport })
   const totalTravelMinutes = 'data' in route ? Math.max(1, Math.round(route.data.durationSeconds / 60)) : Math.round(routeMinutes(start, ordered, transport)); const totalPlayMinutes = ordered.reduce((total, place) => total + place.durationMin, 0); const transportCost = 'data' in route ? Number(route.data.summary?.fare || 0) : 0
   return { data: { places: ordered.map(({ _index, ...place }) => place), order: ordered.map((place) => place._index), totalPlayMinutes, totalTravelMinutes, playTimeRatio: totalPlayMinutes ? totalPlayMinutes / (totalPlayMinutes + totalTravelMinutes) : 0, transportCost, route: 'data' in route ? route.data : null } }
+}
+
+function travelConditions(input) {
+  const value = input?.conditions
+  if (!value || !seoulDistrictNames.has(value.start) || !/^\d{4}-\d{2}-\d{2}$/.test(value.dateStart || '') || !/^\d{4}-\d{2}-\d{2}$/.test(value.dateEnd || '') || value.dateEnd < value.dateStart) return { error: 'INVALID_TRAVEL_CONDITIONS' }
+  const companion = ['friends', 'couple', 'family', 'alone'].includes(value.companion) ? value.companion : 'alone'
+  const transport = ['public', 'car'].includes(value.transport) ? value.transport : 'public'
+  const weather = ['sunny', 'cloudy', 'rain'].includes(value.weather) ? value.weather : 'cloudy'
+  const list = (items) => Array.isArray(items) ? items.filter((item) => typeof item === 'string' && allowedTags.has(item)).slice(0, 20) : []
+  return { value: {
+    start: value.start,
+    dateStart: value.dateStart,
+    dateEnd: value.dateEnd,
+    companion,
+    headcount: Math.max(1, Math.min(100, Math.floor(Number(value.headcount) || 1))),
+    budgetPerPerson: Math.max(0, Math.min(10_000_000, Math.floor(Number(value.budgetPerPerson) || 0))),
+    transport,
+    weather,
+    likes: list(value.likes),
+    dislikes: list(value.dislikes),
+  } }
+}
+
+async function createTravelPlan(input) {
+  const validation = travelConditions(input)
+  if ('error' in validation) return { ...validation, status: 400 }
+  const conditions = validation.value
+  const search = input?.search && typeof input.search === 'object' ? input.search : {}
+  const origin = validPoint(search.origin) ? search.origin : { lat: 37.5668, lng: 126.978 }
+  const url = new URL('http://internal/api/places')
+  url.searchParams.set('area', conditions.start)
+  url.searchParams.set('companion', conditions.companion)
+  url.searchParams.set('lat', String(origin.lat))
+  url.searchParams.set('lng', String(origin.lng))
+  url.searchParams.set('radius', String(Math.max(100, Math.min(20_000, Number(search.radius) || 6_000))))
+  url.searchParams.set('page', String(Math.max(1, Math.min(45, Math.floor(Number(search.page) || 1)))))
+  url.searchParams.set('limit', String(Math.max(1, Math.min(40, Math.floor(Number(search.limit) || 20)))))
+  if (typeof search.query === 'string' && search.query.trim()) url.searchParams.set('q', search.query.trim())
+  const themes = Array.isArray(search.themes) ? search.themes.filter((theme) => Object.hasOwn(preferenceSearches, theme)) : conditions.likes
+  if (themes.length) url.searchParams.set('tags', themes.join(','))
+  const result = await findPlaces(url)
+  if ('error' in result) return result
+  const excludedIds = Array.isArray(input?.excludedPlaceIds) ? input.excludedPlaceIds.filter((id) => typeof id === 'string').slice(0, 100) : []
+  const seed = Number.isFinite(Number(input?.seed)) ? Number(input.seed) : 0
+  const recommendations = recommendPlaces(result.data, { ...conditions, likes: themes }, excludedIds, seed)
+  const days = Math.max(1, Math.min(3, Math.round((new Date(conditions.dateEnd).getTime() - new Date(conditions.dateStart).getTime()) / 86400000) + 1))
+  const itineraries = buildItineraries(recommendations, { ...conditions, likes: themes }, days, origin)
+  const budget = estimateBudget(conditions, itineraries.flat().map((stop) => stop.place))
+  return { data: { recommendations, itineraries, budget }, meta: result.meta }
+}
+
+function recalculateBudget(input) {
+  const validation = travelConditions(input)
+  if ('error' in validation) return { ...validation, status: 400 }
+  const places = Array.isArray(input?.places) ? input.places.filter((place) => place && place.category !== 'lodging').slice(0, 60) : []
+  return { data: estimateBudget(validation.value, places, Number.isFinite(Number(input?.transportCost)) ? Number(input.transportCost) : undefined) }
 }
 
 async function readJsonBody(request, maxBytes = 16_384) {
@@ -868,6 +867,22 @@ createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/api/places') {
     const result = await findPlaces(url)
     return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
+  }
+  if (request.method === 'POST' && url.pathname === '/api/travel-plan') {
+    try {
+      const result = await createTravelPlan(await readJsonBody(request, 96_000))
+      return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
+    } catch (error) {
+      return sendJson(response, error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: 'TRAVEL_PLAN_REQUEST_FAILED' })
+    }
+  }
+  if (request.method === 'POST' && url.pathname === '/api/budget') {
+    try {
+      const result = recalculateBudget(await readJsonBody(request, 96_000))
+      return 'error' in result ? sendJson(response, result.status || 400, { error: result.error }) : sendJson(response, 200, result)
+    } catch (error) {
+      return sendJson(response, error instanceof Error && error.message === 'REQUEST_TOO_LARGE' ? 413 : 400, { error: 'BUDGET_REQUEST_FAILED' })
+    }
   }
   if (request.method === 'POST' && url.pathname === '/api/route') {
     try {

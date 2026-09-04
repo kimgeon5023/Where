@@ -27,7 +27,7 @@ function favoriteToPlace(favorite: FavoriteRecord): Place {
     tags: place.tags || [],
     groupFit: place.groupFit || [],
     indoor: place.indoor ?? false,
-    price: place.price ?? 0,
+    estimatedCost: place.estimatedCost ?? 0,
     durationMin: place.durationMin ?? 0,
     rating: place.rating ?? 0,
     description: place.description || '',
@@ -35,7 +35,6 @@ function favoriteToPlace(favorite: FavoriteRecord): Place {
     accent: place.accent || '#1d9b77',
     distanceKm: place.distanceKm,
     menu: place.menu,
-    lodging: place.lodging,
     phone: place.phone,
     placeUrl: place.placeUrl,
   }
