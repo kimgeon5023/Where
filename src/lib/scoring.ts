@@ -28,8 +28,8 @@ export function recommend(places: Place[], req: TripRequest, excludedIds: string
     const liked = place.tags.filter((tag) => req.likes.includes(tag)).length
     const taste = Math.min(28, liked * 14); const group = place.groupFit.includes(req.companion) ? 18 : 5
     const style = companionStyle[req.companion].includes(place.category) ? 14 : 6
-    const dailyBudget = req.budgetPerPerson / tripDays(req); const cost = visitCost(place, req)
-    const budget = cost <= dailyBudget * .45 ? 18 : cost <= dailyBudget ? 12 : 1
+    const dailyBudget = req.budgetPerPerson > 0 ? req.budgetPerPerson / tripDays(req) : 0; const cost = visitCost(place, req)
+    const budget = req.budgetPerPerson <= 0 ? 0 : cost <= dailyBudget * .45 ? 18 : cost <= dailyBudget ? 12 : 1
     const weather = req.weather === 'rain' ? (place.indoor ? 18 : 1) : req.weather === 'sunny' ? (!place.indoor ? 16 : 7) : (place.indoor ? 12 : 10)
     const maxDistance = req.transport === 'car' ? 14 : 5
     const travel = place.distanceKm === undefined ? 6 : Math.max(1, Math.round((maxDistance - place.distanceKm) * 1.4))
@@ -51,14 +51,16 @@ function nearbyOrder(items: ScoredPlace[], transport: TripRequest['transport']) 
 }
 
 export function selectDiversePlaces(scored: ScoredPlace[], req: TripRequest, days: number, seed: number) {
-  const target = Math.min(16, Math.max(5, days * 5)); const selected: ScoredPlace[] = []; const counts = new Map<string, number>(); let spent = req.transport === 'car' ? 30_000 : 6_000
+  const target = Math.min(16, Math.max(5, days * 5)); const selected: ScoredPlace[] = []; const counts = new Map<string, number>()
+  const transportCost = req.transport === 'car' ? 30_000 : 6_000
+  let spent = transportCost * days
   const candidates = [...scored].sort((a, b) => (b.fitScore + jitter(b.place.id, seed)) - (a.fitScore + jitter(a.place.id, seed)))
   const tooClose = (candidate: ScoredPlace) => selected.some((item) => distance(candidate.place, item.place) < .18)
   const add = (candidate: ScoredPlace) => { selected.push(candidate); spent += visitCost(candidate.place, req); const key = preference(candidate.place, req.likes); counts.set(key, (counts.get(key) || 0) + 1) }
-  for (const taste of req.likes) { const candidate = candidates.find((item) => !selected.some((chosen) => chosen.place.id === item.place.id) && item.place.tags.includes(taste) && !tooClose(item)); if (candidate) add(candidate) }
+  for (const taste of req.likes) { const candidate = candidates.find((item) => !selected.some((chosen) => chosen.place.id === item.place.id) && item.place.tags.includes(taste) && !tooClose(item) && (req.budgetPerPerson <= 0 || spent + visitCost(item.place, req) <= req.budgetPerPerson)); if (candidate) add(candidate) }
   while (selected.length < target) {
-    const candidate = candidates.filter((item) => !selected.some((chosen) => chosen.place.id === item.place.id)).sort((a, b) => {
-      const penalty = (item: ScoredPlace) => ((counts.get(preference(item.place, req.likes)) || 0) * 14) + (tooClose(item) ? 25 : 0) + (spent + visitCost(item.place, req) > req.budgetPerPerson * 1.05 ? 32 : 0)
+    const candidate = candidates.filter((item) => !selected.some((chosen) => chosen.place.id === item.place.id) && (req.budgetPerPerson <= 0 || spent + visitCost(item.place, req) <= req.budgetPerPerson)).sort((a, b) => {
+      const penalty = (item: ScoredPlace) => ((counts.get(preference(item.place, req.likes)) || 0) * 14) + (tooClose(item) ? 25 : 0)
       return (b.fitScore - penalty(b)) - (a.fitScore - penalty(a))
     })[0]
     if (!candidate) break
@@ -79,7 +81,7 @@ export function buildItineraries(scored: ScoredPlace[], req: TripRequest, days: 
 }
 
 export function estimateBudget(req: TripRequest, course: ScoredPlace[]) {
-  const transport = req.transport === 'car' ? 30000 : 6000
+  const transport = (req.transport === 'car' ? 30000 : 6000) * tripDays(req)
   const food = course.filter((item) => item.place.category === 'food').reduce((sum, item) => sum + item.place.price, 0)
   const activity = course.filter((item) => !['food', 'lodging', 'cafe'].includes(item.place.category)).reduce((sum, item) => sum + item.place.price, 0)
   const cafe = course.filter((item) => item.place.category === 'cafe').reduce((sum, item) => sum + item.place.price, 0)

@@ -1,7 +1,7 @@
 import type { Category, Companion, Place, Tag } from '../types'
 import { apiUrl } from './api'
 
-export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; tags?: Tag[]; includeLodging?: boolean; page?: number; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
+export type PlaceSearchParams = { area?: string; category?: Category; companion?: Companion; q?: string; tags?: Tag[]; includeLodging?: boolean; maxPrice?: number; page?: number; limit?: number; lat?: number; lng?: number; radius?: number; south?: number; north?: number; west?: number; east?: number; zoom?: number }
 export type PlacesResponse = { data: Place[]; meta: { total: number; area: string; category: string; source?: string; page?: number; hasMore?: boolean } }
 export type RouteResponse = { data: { coordinates: { lat: number; lng: number }[]; distanceMeters: number; durationSeconds: number } }
 export type RouteRequest = { origin: { lat: number; lng: number }; stops: { lat: number; lng: number }[]; transport: 'car' | 'public' }

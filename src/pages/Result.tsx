@@ -121,9 +121,11 @@ export default function Result() {
   })
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
-  const [selectedTags, setSelectedTags] = useState<Tag[]>([])
-  const [budgetFilter, setBudgetFilter] = useState(50000)
-  const [budgetInput, setBudgetInput] = useState('50000')
+  const [draftTags, setDraftTags] = useState<Tag[]>([])
+  const [appliedTags, setAppliedTags] = useState<Tag[]>([])
+  const [budgetFilter, setBudgetFilter] = useState(0)
+  const [budgetInput, setBudgetInput] = useState('')
+  const [filterError, setFilterError] = useState('')
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
   const [apiError, setApiError] = useState('')
@@ -153,6 +155,23 @@ export default function Result() {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
+  const transportBudget = req ? (req.transport === 'car' ? 30_000 : 6_000) * dayCount : 0
+  const maxPlacePrice = budgetFilter > 0 ? Math.max(0, budgetFilter - transportBudget) : undefined
+
+  const applyFilters = () => {
+    const nextBudget = budgetInput ? Number(budgetInput) : 0
+    if (!Number.isInteger(nextBudget) || (budgetInput !== '' && nextBudget < 1) || nextBudget > 10_000_000) {
+      setFilterError('예산은 1원부터 1,000만 원까지 입력해 주세요.')
+      return
+    }
+    setFilterError('')
+    setAppliedTags(draftTags)
+    setBudgetFilter(nextBudget)
+    setApiPlaces([])
+    setHasMore(false)
+    setSearchPage(1)
+    setDay(0)
+  }
 
   useEffect(() => {
     if (!isTripRequest(location.state)) return
@@ -160,15 +179,6 @@ export default function Result() {
     setReq(location.state)
   }, [location.state])
 
-  // Budget only changes the local ranking, so typing never causes place API calls.
-  // The short debounce prevents recalculating the complete list for every digit.
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const next = Number(budgetInput)
-      if (Number.isFinite(next) && next > 0) setBudgetFilter(Math.floor(next))
-    }, 300)
-    return () => window.clearTimeout(timer)
-  }, [budgetInput])
   useEffect(() => { if (!tripNotice) return; const timer = window.setTimeout(() => setTripNotice(null), 3500); return () => window.clearTimeout(timer) }, [tripNotice])
 
   useEffect(() => {
@@ -200,7 +210,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: selectedTags, includeLodging: false, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
+      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
       .then(({ data, meta }) => {
         setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
         setHasMore(Boolean(meta.hasMore) && data.length > 0)
@@ -226,12 +236,12 @@ export default function Result() {
     }
     const timer = window.setTimeout(loadPlaces, 300)
     return () => { window.clearTimeout(timer); if (retryTimer !== undefined) window.clearTimeout(retryTimer); controller.abort() }
-  }, [req, selectedTags, userLocation, keyword, searchRevision, searchPage])
+  }, [req, appliedTags, maxPlacePrice, userLocation, keyword, searchRevision, searchPage])
 
-  const filterRequest = useMemo(() => req ? { ...req, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter])
+  const filterRequest = useMemo(() => req ? { ...req, likes: appliedTags, budgetPerPerson: budgetFilter } : null, [req, appliedTags, budgetFilter])
   const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
-  const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
+  const itineraries = useMemo(() => filterRequest ? buildItineraries(scored, filterRequest, dayCount, recommendationSeed) : [], [scored, filterRequest, dayCount, recommendationSeed])
   const rawCurrentCourse = itineraries[day] ?? []
   const automaticCurrentCourse = editedDays[day] ?? rawCurrentCourse
   const currentCourse = isManualCourseEditing ? manualCourseDays[day] ?? [] : automaticCurrentCourse
@@ -259,27 +269,27 @@ export default function Result() {
       return true
     }).map((place) => scored.find((item) => item.place.id === place.id)).filter(Boolean) as typeof scored
   }, [persistedCourseDays, scored])
-  const budget = useMemo(() => req ? estimateBudget(req, allCourse) : { items: [], total: 0, perPerson: 0 }, [req, allCourse])
+  const budget = useMemo(() => filterRequest ? estimateBudget(filterRequest, allCourse) : { items: [], total: 0, perPerson: 0 }, [filterRequest, allCourse])
   const coursePlaces = useMemo(() => currentCourse.map((stop) => stop.place), [currentCourse])
   const saveCourse = useCallback(async (isPublic: boolean) => {
-    if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
+    if (!filterRequest || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
     if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소가 없습니다.' }); return }
-    const title = savedTrip?.title || window.prompt('코스 이름을 입력해주세요.', `${req.start} 여행 코스`)
+    const title = savedTrip?.title || window.prompt('코스 이름을 입력해주세요.', `${filterRequest.start} 여행 코스`)
     if (!title?.trim()) return
     setTripActionBusy(true)
     try {
-      const input = toTripInput(req, persistedCourseDays, title.trim(), isPublic)
+      const input = toTripInput(filterRequest, persistedCourseDays, title.trim(), isPublic)
       const trip = savedTrip ? await updateTrip(savedTrip.id, input, user.token) : await createTrip(input, user.token)
       setSavedTrip(trip)
       await refreshTrips()
       if (isPublic && trip.shareToken) {
         const shareUrl = `${window.location.origin}/share/trips/${trip.shareToken}`
         if (navigator.clipboard) await navigator.clipboard.writeText(shareUrl)
-        else { shareCourse(req, persistedCourseDays.flat()); window.prompt('공유 링크를 복사해주세요.', shareUrl) }
+        else { shareCourse(filterRequest, persistedCourseDays.flat()); window.prompt('공유 링크를 복사해주세요.', shareUrl) }
         setTripNotice({ kind: 'success', text: '공개 코스를 저장하고 공유 링크를 복사했습니다.' })
       } else setTripNotice({ kind: 'success', text: '내 코스에 저장했습니다.' })
     } catch (error) { setTripNotice({ kind: 'error', text: error instanceof Error ? error.message : '코스를 저장하지 못했습니다.' }) } finally { setTripActionBusy(false) }
-  }, [req, user, persistedCourseDays, savedTrip, refreshTrips])
+  }, [filterRequest, user, persistedCourseDays, savedTrip, refreshTrips])
   const startManualCourse = () => {
     setManualCourseDays({})
     setIsManualCourseEditing(true)
@@ -304,13 +314,13 @@ export default function Result() {
     })
   }
   const completeManualCourse = async () => {
-    if (!req || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
+    if (!filterRequest || !user?.token) { setTripNotice({ kind: 'error', text: '코스 저장은 로그인 후 이용할 수 있습니다.' }); return }
     if (!persistedCourseDays.flat().length) { setTripNotice({ kind: 'error', text: '저장할 장소를 한 곳 이상 추가해 주세요.' }); return }
-    const title = window.prompt('코스 이름을 입력해 주세요.', `${req.start} 여행 코스`)
+    const title = window.prompt('코스 이름을 입력해 주세요.', `${filterRequest.start} 여행 코스`)
     if (!title?.trim()) return
     setTripActionBusy(true)
     try {
-      await createTrip(toTripInput(req, persistedCourseDays, title.trim(), false), user.token)
+      await createTrip(toTripInput(filterRequest, persistedCourseDays, title.trim(), false), user.token)
       await refreshTrips()
       setManualCourseDays({})
       setIsManualCourseEditing(false)
@@ -393,13 +403,16 @@ export default function Result() {
           {apiError && <div className="search-feedback form-error"><span>{apiError}</span><button type="button" className="ghost-button" onClick={() => setSearchRevision((value) => value + 1)}>다시 시도</button></div>}
           <div className="result-filter-bar">
             <div className="tag-list" aria-label="장소 카테고리 필터">
-              {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (selectedTags.includes(item.value) ? ' active' : '')} onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setSelectedTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value]); setDay(0) }}>{item.label}</button>)}
+              {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (draftTags.includes(item.value) ? ' active' : '')} onClick={() => setDraftTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value])}>{item.label}</button>)}
             </div>
-            <label className="result-budget-filter">1인 예산 <span><input type="number" min="1" step="1000" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="1인 예산" />원</span>{budgetInput !== '' && Number(budgetInput) > 0 ? <small>{Number(budgetInput).toLocaleString()}원</small> : <small>1원 이상 입력</small>}</label>
+            <label className="result-budget-filter">1인 전체 예산 <input type="text" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액 입력" aria-label="1인 전체 여행 예산" /><span>원</span></label>
+            <button type="button" className="result-filter-apply" onClick={applyFilters}>적용</button>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
+          {filterError && <p className="result-filter-error" role="alert">{filterError}</p>}
+          {budgetFilter > 0 && <p className="result-filter-status" aria-live="polite">1인 전체 예산 {budgetFilter.toLocaleString()}원 · 교통비 {transportBudget.toLocaleString()}원을 제외한 장소를 추천해요.</p>}
           <label className="place-search-input"><Icon name="pin" size={15} /><input value={keyword} onChange={(event) => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword(event.target.value) }} placeholder="장소 또는 키워드로 검색" aria-label="장소 검색" />{keyword && <button type="button" onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword('') }} aria-label="검색어 지우기">×</button>}</label>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
@@ -415,7 +428,7 @@ export default function Result() {
           ) : (
             <><div className="place-list">{recommended.map((item, index) => <PlaceCard key={item.place.id} index={index + 1} scored={item} onSelect={setSelectedPlaceId} onRemove={(id) => setExcluded((current) => [...current, id])} isSaved={isFavorite(item.place.id)} onToggleSaved={() => toggleFavorite(item.place)} inCourse={isManualCourseEditing && isInManualCourse(item.place.id)} onCourseToggle={isManualCourseEditing ? () => toggleManualPlace(item.place) : undefined} onReviewSummary={({ placeId, rating, reviewCount }) => setApiPlaces((current) => current.map((place) => place.id === placeId ? { ...place, rating, reviewCount } : place))} />)}</div>{hasMore && <button type="button" className="result-load-more" onClick={() => setSearchPage((value) => value + 1)} disabled={loading}>{loading ? '장소를 불러오는 중...' : '장소 더보기'}</button>}</>
           )}
-          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong><span>예산의 {Math.min(999, Math.round((budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / Math.max(1, req.budgetPerPerson)) * 100) + '%' }} /></div></div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
+          <div className="budget-card"><div className="budget-header"><div><span className="step-label">ESTIMATED COST</span><h2>예상 여행 비용</h2></div><span className="budget-person">1인 기준</span></div><div className="budget-content"><div className="budget-total"><strong>{budget.perPerson.toLocaleString()}<small>원</small></strong>{budgetFilter > 0 ? <><span>예산의 {Math.min(999, Math.round((budget.perPerson / budgetFilter) * 100))}% 사용</span><div className="budget-progress"><i style={{ width: Math.min(100, (budget.perPerson / budgetFilter) * 100) + '%' }} /></div></> : <span>예산을 입력하면 한도 안의 코스를 추천해요.</span>}</div><div className="budget-breakdown">{budget.items.map((item) => <div key={item.label}><span>{item.label}</span><strong>{item.cost.toLocaleString()}원</strong></div>)}</div></div></div>
         </div>
         <aside className="map-column"><div className="map-card"><div className="map-live-badge"><i /> KAKAO LIVE</div><MapView places={mapPlaces} center={center} userLocation={liveLocation ?? userLocation} selectedPlaceId={selectedPlaceId} onPlaceSelect={setSelectedPlaceId} /><div className="map-legend"><span><i className="legend-dot green" /> 서비스 후기 평균 TOP 1~3</span></div></div><div className="side-tip"><Icon name="spark" size={20} /><div><strong>필터와 지도가 함께 바뀌어요</strong><p>카테고리를 선택하거나 해제하면 목록과 마커가 즉시 갱신됩니다.</p></div></div></aside>
       </section>
