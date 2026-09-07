@@ -1,13 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { createFavorite, getFavorites, removeFavorite, type FavoriteRecord } from '../lib/favoritesApi'
+import { clearLegacyFavorites, getFavoriteSnapshot, getLastFavoriteSnapshot, getLegacyFavorites, saveFavoriteSnapshot } from '../lib/legacyFavorites'
 import type { Category, Place } from '../types'
 
 interface FavoritesContextValue {
   favorites: Place[]
   favoritesLoading: boolean
+  legacyFavoritesCount: number
   isFavorite: (placeId: string) => boolean
   toggleFavorite: (place: Place) => Promise<void>
+  importLegacyFavorites: () => Promise<void>
 }
 
 const FavoritesContext = createContext<FavoritesContextValue | null>(null)
@@ -42,22 +45,35 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const [favorites, setFavorites] = useState<Place[]>([])
   const [favoritesLoading, setFavoritesLoading] = useState(false)
+  const [legacyFavorites, setLegacyFavorites] = useState<Place[]>([])
 
   useEffect(() => {
     if (!user?.token) {
-      setFavorites([])
+      // Keep the most recently signed-in account's list available on this device
+      // after sign-out. A subsequent sign-in always replaces it with that account's list.
+      setFavorites(getLastFavoriteSnapshot())
       setFavoritesLoading(false)
+      setLegacyFavorites([])
       return
     }
     const controller = new AbortController()
+    let active = true
+    // Never display the previous account's favorites while loading this account.
+    setFavorites([])
+    setLegacyFavorites(getLegacyFavorites())
     setFavoritesLoading(true)
     getFavorites(user.token, controller.signal)
-      .then((data) => setFavorites(data.map(favoriteToPlace)))
-      .catch((error: unknown) => {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) setFavorites([])
+      .then((data) => {
+        if (!active) return
+        const places = data.map(favoriteToPlace)
+        setFavorites(places)
+        saveFavoriteSnapshot(user.id, places)
       })
-      .finally(() => setFavoritesLoading(false))
-    return () => controller.abort()
+      .catch((error: unknown) => {
+        if (active && !(error instanceof DOMException && error.name === 'AbortError')) setFavorites(getFavoriteSnapshot(user.id))
+      })
+      .finally(() => { if (active) setFavoritesLoading(false) })
+    return () => { active = false; controller.abort() }
   }, [user?.id, user?.token])
 
   const isFavorite = useCallback((placeId: string) => favorites.some((place) => place.id === placeId), [favorites])
@@ -66,14 +82,33 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     if (!user?.token) throw new Error('AUTH_REQUIRED')
     if (isFavorite(place.id)) {
       await removeFavorite(user.token, place.id)
-      setFavorites((current) => current.filter((item) => item.id !== place.id))
+      setFavorites((current) => {
+        const next = current.filter((item) => item.id !== place.id)
+        saveFavoriteSnapshot(user.id, next)
+        return next
+      })
       return
     }
     const favorite = await createFavorite(user.token, place)
-    setFavorites((current) => [favoriteToPlace(favorite), ...current.filter((item) => item.id !== place.id)])
+    setFavorites((current) => {
+      const next = [favoriteToPlace(favorite), ...current.filter((item) => item.id !== place.id)]
+      saveFavoriteSnapshot(user.id, next)
+      return next
+    })
   }, [isFavorite, user])
 
-  const value = useMemo(() => ({ favorites, favoritesLoading, isFavorite, toggleFavorite }), [favorites, favoritesLoading, isFavorite, toggleFavorite])
+  const importLegacyFavorites = useCallback(async () => {
+    if (!user?.token) throw new Error('AUTH_REQUIRED')
+    for (const place of legacyFavorites) await createFavorite(user.token, place)
+    const data = await getFavorites(user.token)
+    const places = data.map(favoriteToPlace)
+    setFavorites(places)
+    saveFavoriteSnapshot(user.id, places)
+    clearLegacyFavorites()
+    setLegacyFavorites([])
+  }, [legacyFavorites, user])
+
+  const value = useMemo(() => ({ favorites, favoritesLoading, legacyFavoritesCount: legacyFavorites.length, isFavorite, toggleFavorite, importLegacyFavorites }), [favorites, favoritesLoading, legacyFavorites.length, isFavorite, toggleFavorite, importLegacyFavorites])
   return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>
 }
 

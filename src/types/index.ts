@@ -30,6 +30,7 @@ export interface Place {
   price: number
   durationMin: number
   rating: number
+  reviewCount?: number
   description: string
   image: string
   accent: string
