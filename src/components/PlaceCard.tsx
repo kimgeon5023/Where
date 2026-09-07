@@ -22,14 +22,15 @@ async function compressImage(file: File) {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
   if (!context) throw new Error('사진을 준비하지 못했습니다.')
-  for (const maxSide of [1200, 1024, 880]) {
+  // Keep the JSON payload well below proxy and server request-size limits.
+  for (const maxSide of [1024, 880, 720, 640]) {
     const scale = Math.min(1, maxSide / Math.max(source.width, source.height))
     canvas.width = Math.max(1, Math.round(source.width * scale))
     canvas.height = Math.max(1, Math.round(source.height * scale))
     context.drawImage(source, 0, 0, canvas.width, canvas.height)
-    for (const quality of [.76, .66, .56]) {
+    for (const quality of [.72, .62, .52]) {
       const dataUrl = canvas.toDataURL('image/jpeg', quality)
-      if (dataUrl.length <= 520_000) return dataUrl
+      if (dataUrl.length <= 360_000) return dataUrl
     }
   }
   throw new Error('사진 크기를 줄이지 못했습니다. 다른 사진을 선택해 주세요.')
@@ -101,7 +102,12 @@ export default function PlaceCard({ index, scored, onRemove, isSaved = false, on
             closeForm()
             return
           }
-          lastError = body.error || lastError
+          lastError = body.error
+            || (response.status === 401 ? '\uB85C\uADF8\uC778\uC774 \uB9CC\uB8CC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694.'
+              : response.status === 413 ? '\uC0AC\uC9C4 \uC6A9\uB7C9\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4. \uB354 \uC791\uC740 \uC0AC\uC9C4\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.'
+                : response.status === 429 ? '\uB9AC\uBDF0\uB97C \uB108\uBB34 \uC790\uC8FC \uB4F1\uB85D\uD558\uACE0 \uC788\uC5B4\uC694. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.'
+                  : response.status >= 500 ? '\uB9AC\uBDF0 \uC11C\uBC84\uAC00 \uC77C\uC2DC\uC801\uC73C\uB85C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.'
+                    : lastError)
           if (![502, 503, 504].includes(response.status)) break
         } catch { lastError = '리뷰 서버와 연결하지 못했습니다.' }
         if (attempt < 2) { setReviewError('리뷰 서버와 다시 연결 중이에요. 잠시만 기다려 주세요.'); await wait((attempt + 1) * 1_000) }
