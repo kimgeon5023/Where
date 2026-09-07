@@ -6,11 +6,12 @@ import { useAuth } from '../auth/AuthContext'
 interface LoginModalProps {
   open: boolean
   onClose: () => void
+  onBeforeGoogleLogin?: () => void
 }
 
 type ModalMode = 'social' | 'signup' | 'login'
 
-export default function LoginModal({ open, onClose }: LoginModalProps) {
+export default function LoginModal({ open, onClose, onBeforeGoogleLogin }: LoginModalProps) {
   const { signIn, signUpWithPassword, logInWithPassword } = useAuth()
   const [mode, setMode] = useState<ModalMode>('social')
   const [name, setName] = useState('')
@@ -73,6 +74,7 @@ export default function LoginModal({ open, onClose }: LoginModalProps) {
     setError('')
     setSocialLoading(true)
     try {
+      onBeforeGoogleLogin?.()
       await signIn('google')
     } catch {
       setSocialLoading(false)

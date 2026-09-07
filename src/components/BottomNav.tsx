@@ -4,6 +4,7 @@ import Icon from './Icon'
 const tabs = [
   { to: '/', icon: 'pin' as const, label: '홈' },
   { to: '/saved', icon: 'heart' as const, label: '저장' },
+  { to: '/trips', icon: 'route' as const, label: '코스' },
   { to: '/friends', icon: 'friends' as const, label: '친구' },
   { to: '/settings', icon: 'settings' as const, label: '설정' },
 ]

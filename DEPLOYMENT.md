@@ -39,6 +39,10 @@ For frontend work against the deployed API, keep `VITE_API_BASE_URL` set to the 
 ## Deployment ownership
 
 - Vercel: set `VITE_API_BASE_URL` for Production and Preview.
-- Render: configure `DATABASE_URL`, `FRONTEND_URL`, `API_BASE_URL`, `AUTH_TOKEN_SECRET`, OAuth credentials, and Kakao REST keys in the Render service dashboard.
+- Render: configure `DATABASE_URL`, `FRONTEND_URL` (exactly `https://where-silk.vercel.app`, without a trailing slash), `API_BASE_URL`, `AUTH_TOKEN_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, OAuth credentials, and Kakao REST keys in the Render service dashboard.
+
+Before deploying a backend version with schema changes, run `npm run migrate` once against the production database (or configure it as the platform's explicit pre-deploy command). The API process no longer runs schema migrations at startup.
+
+The current authentication model uses a 14-day Bearer token stored by the existing frontend. Refresh tokens are not implemented yet; a future auth migration should introduce short-lived access tokens and HttpOnly, Secure refresh cookies without accepting user IDs from request bodies.
 
 All keys, database URLs, OAuth secrets, and `.env` files are intentionally excluded from Git. Ask the project owner for access or for values through a secure channel.
