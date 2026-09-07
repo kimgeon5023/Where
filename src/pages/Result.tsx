@@ -23,7 +23,8 @@ function isTripRequest(value: unknown): value is TripRequest {
     && typeof request.dateStart === 'string' && Boolean(request.dateStart)
     && typeof request.dateEnd === 'string' && Boolean(request.dateEnd)
     && ['friends', 'couple', 'family', 'alone'].includes(request.companion ?? '')
-    && typeof request.headcount === 'number'
+    && typeof request.headcount === 'number' && Number.isInteger(request.headcount) && request.headcount >= 1 && request.headcount <= 100
+    && (request.companion === 'alone' ? request.headcount === 1 : request.headcount >= 2)
     && typeof request.budgetPerPerson === 'number'
     && ['public', 'car'].includes(request.transport ?? '')
     && Array.isArray(request.likes) && Array.isArray(request.dislikes)
@@ -125,6 +126,7 @@ export default function Result() {
   const [appliedTags, setAppliedTags] = useState<Tag[]>([])
   const [budgetFilter, setBudgetFilter] = useState(0)
   const [budgetInput, setBudgetInput] = useState('')
+  const [headcountInput, setHeadcountInput] = useState(() => String(req?.headcount ?? 1))
   const [filterError, setFilterError] = useState('')
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
@@ -160,13 +162,19 @@ export default function Result() {
 
   const applyFilters = () => {
     const nextBudget = budgetInput ? Number(budgetInput) : 0
+    const nextHeadcount = Number(headcountInput)
     if (!Number.isInteger(nextBudget) || (budgetInput !== '' && nextBudget < 1) || nextBudget > 10_000_000) {
       setFilterError('예산은 1원부터 1,000만 원까지 입력해 주세요.')
+      return
+    }
+    if (!Number.isInteger(nextHeadcount) || nextHeadcount < 1 || nextHeadcount > 100 || (req?.companion !== 'alone' && nextHeadcount < 2)) {
+      setFilterError('인원수는 혼자일 때 1명, 동행 여행은 2명부터 100명까지 입력해 주세요.')
       return
     }
     setFilterError('')
     setAppliedTags(draftTags)
     setBudgetFilter(nextBudget)
+    setReq((current) => current ? { ...current, headcount: current.companion === 'alone' ? 1 : nextHeadcount } : current)
     setApiPlaces([])
     setHasMore(false)
     setSearchPage(1)
@@ -177,7 +185,45 @@ export default function Result() {
     if (!isTripRequest(location.state)) return
     try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(location.state)) } catch { /* storage is optional */ }
     setReq(location.state)
+    setHeadcountInput(String(location.state.headcount))
   }, [location.state])
+
+  useEffect(() => {
+    if (!req) return
+    try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(req)) } catch { /* storage is optional */ }
+  }, [req])
+
+  useEffect(() => {
+    // Theme chips are safe to apply immediately; the request effect below
+    // aborts the previous search and refreshes the visible recommendations.
+    setAppliedTags(draftTags)
+    setApiPlaces([])
+    setHasMore(false)
+    setSearchPage(1)
+    setDay(0)
+  }, [draftTags])
+
+  useEffect(() => {
+    // Keep numeric typing comfortable while still refreshing recommendations
+    // without requiring an extra click after a valid value is entered.
+    const timer = window.setTimeout(() => {
+      const nextBudget = budgetInput ? Number(budgetInput) : 0
+      const nextHeadcount = Number(headcountInput)
+      const validBudget = Number.isInteger(nextBudget) && nextBudget >= 0 && nextBudget <= 10_000_000
+      const validHeadcount = Number.isInteger(nextHeadcount) && nextHeadcount >= 1 && nextHeadcount <= 100 && (req?.companion === 'alone' || nextHeadcount >= 2)
+      if (!validBudget || !validHeadcount) return
+      setFilterError('')
+      setBudgetFilter(nextBudget)
+      setReq((current) => current && current.headcount !== (current.companion === 'alone' ? 1 : nextHeadcount)
+        ? { ...current, headcount: current.companion === 'alone' ? 1 : nextHeadcount }
+        : current)
+      setApiPlaces([])
+      setHasMore(false)
+      setSearchPage(1)
+      setDay(0)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [budgetInput, headcountInput, req?.companion])
 
   useEffect(() => { if (!tripNotice) return; const timer = window.setTimeout(() => setTripNotice(null), 3500); return () => window.clearTimeout(timer) }, [tripNotice])
 
@@ -210,7 +256,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
+      searchPlaces({ area: req.start, companion: req.companion, headcount: req.headcount, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
       .then(({ data, meta }) => {
         setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
         setHasMore(Boolean(meta.hasMore) && data.length > 0)
@@ -405,8 +451,9 @@ export default function Result() {
             <div className="tag-list" aria-label="장소 카테고리 필터">
               {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (draftTags.includes(item.value) ? ' active' : '')} onClick={() => setDraftTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value])}>{item.label}</button>)}
             </div>
+            <label className="result-headcount-filter">인원수 <input type="text" inputMode="numeric" value={headcountInput} disabled={req?.companion === 'alone'} onChange={(event) => setHeadcountInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="여행 인원수 필터" /><span>명</span></label>
             <label className="result-budget-filter">1인 전체 예산 <input type="text" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액 입력" aria-label="1인 전체 여행 예산" /><span>원</span></label>
-            <button type="button" className="result-filter-apply" onClick={applyFilters}>적용</button>
+            <button type="button" className="result-filter-apply" onClick={applyFilters}>즉시 적용</button>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>

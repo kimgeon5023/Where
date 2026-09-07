@@ -45,6 +45,17 @@ export default function Home() {
   const { favorites } = useFavorites()
   const { trips } = useTrips()
   const update = <K extends keyof TripRequest>(key: K, value: TripRequest[K]) => setRequest((current) => ({ ...current, [key]: value }))
+  const selectCompanion = (companion: Companion) => setRequest((current) => ({
+    ...current,
+    companion,
+    // A solo trip must never keep a stale group size from a previous choice.
+    headcount: companion === 'alone' ? 1 : Math.max(2, current.headcount),
+  }))
+  const updateHeadcount = (value: string) => {
+    const parsed = Number(value)
+    if (!Number.isInteger(parsed)) return
+    setRequest((current) => ({ ...current, headcount: current.companion === 'alone' ? 1 : Math.min(100, Math.max(2, parsed)) }))
+  }
   const updateStartDate = (dateStart: string) => setRequest((current) => ({ ...current, dateStart, dateEnd: current.dateEnd < dateStart ? dateStart : current.dateEnd }))
 
   const areaSuggestions = areaQuery
@@ -54,6 +65,7 @@ export default function Home() {
   const submit = () => {
     if (!isSeoulDistrict(request.start) || !selectedArea) { setError('서울특별시 25개 구 중 하나를 추천 목록에서 선택해 주세요.'); return }
     if (!request.dateStart || !request.dateEnd || request.dateEnd < request.dateStart) { setError('여행 날짜를 올바르게 선택해 주세요.'); return }
+    if (!Number.isInteger(request.headcount) || request.headcount < 1 || request.headcount > 100 || (request.companion !== 'alone' && request.headcount < 2)) { setError('인원수는 혼자일 때 1명, 동행 여행은 2명부터 100명까지 입력해 주세요.'); return }
     setError('')
     // Result 화면의 location state는 브라우저 새로고침 시 사라진다. 화면 전환 전에
     // 같은 요청을 저장해 두어 결과 화면이 항상 완전한 조건으로 다시 검색하게 한다.
@@ -83,7 +95,7 @@ export default function Home() {
         <label className="planner-field"><span><Icon name="calendar" size={18} /> 도착일</span><input type="date" min={request.dateStart || today} value={request.dateEnd} onChange={(event) => update('dateEnd', event.target.value)} /></label>
         <button type="button" className="planner-search" onClick={submit}>코스 찾기 <Icon name="arrow" size={18} /></button>
       </div>
-      <div className="planner-preferences"><div className="planner-preference-row"><span className="preference-label">누구와 가나요?</span><div className="booking-companions">{companions.map((item) => <button type="button" key={item.value} className={request.companion === item.value ? 'active' : ''} onClick={() => update('companion', item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}</div></div>{error && <p className="booking-form-error">{error}</p>}</div>
+      <div className="planner-preferences"><div className="planner-preference-row"><span className="preference-label">누구와 가나요?</span><div className="booking-companions">{companions.map((item) => <button type="button" key={item.value} className={request.companion === item.value ? 'active' : ''} onClick={() => selectCompanion(item.value)}><Icon name={item.icon} size={17} /><span><strong>{item.label}</strong><small>{item.caption}</small></span></button>)}</div></div><label className="planner-headcount"><span>인원수</span><input type="number" inputMode="numeric" min={request.companion === 'alone' ? 1 : 2} max="100" value={request.headcount} disabled={request.companion === 'alone'} onChange={(event) => updateHeadcount(event.target.value)} aria-label="여행 인원수" /><small>명</small>{request.companion === 'alone' && <em>혼자 여행은 1명으로 설정돼요.</em>}</label>{error && <p className="booking-form-error">{error}</p>}</div>
     </section>
     <footer className="booking-footer"><span className="booking-brand-mark">갈</span><p>나에게 꼭 맞는 서울의 하루를 찾아보세요.</p><span>© 2026 갈래말래</span></footer>
     <BottomNav />
