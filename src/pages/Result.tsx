@@ -81,10 +81,11 @@ export default function Result() {
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
   const [selectedTags, setSelectedTags] = useState<Tag[]>([])
-  const [budgetFilter, setBudgetFilter] = useState(50000)
-  const [budgetInput, setBudgetInput] = useState('50000')
+  const [budgetFilter, setBudgetFilter] = useState(0)
+  const [budgetInput, setBudgetInput] = useState('')
   const [headcountInput, setHeadcountInput] = useState(() => String(req?.headcount ?? 1))
   const [headcountFilter, setHeadcountFilter] = useState(() => req?.headcount ?? 1)
+  const [filterError, setFilterError] = useState('')
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
   const [apiError, setApiError] = useState('')
@@ -104,16 +105,42 @@ export default function Result() {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dayCount = req ? daysBetween(req.dateStart, req.dateEnd) : 1
+  const transportBudget = req ? (req.transport === 'car' ? 30_000 : 6_000) * dayCount : 0
+  const maxPlacePrice = budgetFilter > 0 ? Math.max(0, budgetFilter - transportBudget) : undefined
 
-  // Budget only changes the local ranking, so typing never causes place API calls.
-  // The short debounce prevents recalculating the complete list for every digit.
+  const applyFilters = () => {
+    const nextBudget = budgetInput ? Number(budgetInput) : 0
+    const people = Number(headcountInput)
+    const validBudget = Number.isInteger(nextBudget) && nextBudget >= 0 && nextBudget <= 10_000_000
+    const validPeople = Number.isInteger(people) && people >= 1 && people <= 100 && (req?.companion === 'alone' || people >= 2)
+    if (!validBudget || !validPeople) {
+      setFilterError(!validBudget ? '예산은 1원부터 1,000만 원까지 입력해 주세요.' : '인원수는 혼자일 때 1명, 동행 여행은 2명부터 100명까지 입력해 주세요.')
+      return
+    }
+    setFilterError('')
+    setBudgetFilter(nextBudget)
+    setHeadcountFilter(req?.companion === 'alone' ? 1 : people)
+    setApiPlaces([])
+    setHasMore(false)
+    setSearchPage(1)
+    setDay(0)
+  }
+
+  // Numeric input is applied automatically after short typing pauses.
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const next = Number(budgetInput)
-      if (Number.isFinite(next) && next > 0) setBudgetFilter(Math.floor(next))
+      const next = budgetInput ? Number(budgetInput) : 0
       const people = Number(headcountInput)
+      const validBudget = Number.isInteger(next) && next >= 0 && next <= 10_000_000
       const validPeople = Number.isInteger(people) && people >= 1 && people <= 100 && (req?.companion === 'alone' || people >= 2)
-      if (validPeople) setHeadcountFilter(req?.companion === 'alone' ? 1 : people)
+      if (!validBudget || !validPeople) return
+      setFilterError('')
+      setBudgetFilter(next)
+      setHeadcountFilter(req?.companion === 'alone' ? 1 : people)
+      setApiPlaces([])
+      setHasMore(false)
+      setSearchPage(1)
+      setDay(0)
     }, 300)
     return () => window.clearTimeout(timer)
   }, [budgetInput, headcountInput, req?.companion])
@@ -131,7 +158,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, headcount: headcountFilter, q: keyword.trim(), tags: selectedTags, includeLodging: false, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
+      searchPlaces({ area: req.start, companion: req.companion, headcount: headcountFilter, q: keyword.trim(), tags: selectedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
       .then(({ data, meta }) => {
         setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
         setHasMore(Boolean(meta.hasMore) && data.length > 0)
@@ -145,7 +172,7 @@ export default function Result() {
       .finally(() => setLoading(false))
     }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [req, selectedTags, headcountFilter, userLocation, keyword, searchRevision, searchPage])
+  }, [req, selectedTags, headcountFilter, maxPlacePrice, userLocation, keyword, searchRevision, searchPage])
 
   const filterRequest = useMemo(() => req ? { ...req, headcount: headcountFilter, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter, headcountFilter])
   const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
@@ -235,12 +262,15 @@ export default function Result() {
             <div className="tag-list" aria-label="장소 카테고리 필터">
               {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (selectedTags.includes(item.value) ? ' active' : '')} onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setSelectedTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value]); setDay(0) }}>{item.label}</button>)}
             </div>
-            <label className="result-headcount-filter">인원수 <input type="number" min={req.companion === 'alone' ? 1 : 2} max="100" inputMode="numeric" value={headcountInput} disabled={req.companion === 'alone'} onChange={(event) => setHeadcountInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="여행 인원수 필터" /><span>명</span></label>
-            <label className="result-budget-filter">1인 예산 <span><input type="number" min="1" step="1000" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="1인 예산" />원</span>{budgetInput !== '' && Number(budgetInput) > 0 ? <small>{Number(budgetInput).toLocaleString()}원</small> : <small>1원 이상 입력</small>}</label>
+            <label className="result-headcount-filter">인원수 <input type="text" inputMode="numeric" value={headcountInput} disabled={req.companion === 'alone'} onChange={(event) => setHeadcountInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="여행 인원수 필터" /><span>명</span></label>
+            <label className="result-budget-filter">1인 전체 예산 <input type="text" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액 입력" aria-label="1인 전체 여행 예산" /><span>원</span></label>
+            <button type="button" className="result-filter-apply" onClick={applyFilters}>즉시 적용</button>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </div>
+          {filterError && <p className="result-filter-error" role="alert">{filterError}</p>}
+          {budgetFilter > 0 && <p className="result-filter-status" aria-live="polite">1인 전체 예산 {budgetFilter.toLocaleString()}원 · 교통비 {transportBudget.toLocaleString()}원을 제외한 장소를 추천해요.</p>}
           <label className="place-search-input"><Icon name="pin" size={15} /><input value={keyword} onChange={(event) => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword(event.target.value) }} placeholder="장소 또는 키워드로 검색" aria-label="장소 검색" />{keyword && <button type="button" onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setKeyword('') }} aria-label="검색어 지우기">×</button>}</label>
           <div className="day-tabs">{Array.from({ length: dayCount }).map((_, index) => <button type="button" key={index} onClick={() => setDay(index)} className={day === index ? 'selected' : ''}><span>DAY {index + 1}</span><small>{index === 0 ? dateLabel(req.dateStart) : '다음 날'}</small></button>)}</div>
           <div className="route-card">
