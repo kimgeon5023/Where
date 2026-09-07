@@ -16,6 +16,13 @@ export interface LodgingInfo {
   bed: string
 }
 
+// Kakao does not provide verified seating or reservation data. This profile is
+// a transparent category-based hint used only to rank larger groups.
+export interface GroupProfile {
+  space: 'small' | 'medium' | 'large'
+  reservationCheckRecommended: boolean
+}
+
 export interface Place {
   id: string
   name: string
@@ -26,6 +33,7 @@ export interface Place {
   distanceKm?: number
   tags: Tag[]
   groupFit: Companion[]
+  groupProfile?: GroupProfile
   indoor: boolean
   price: number
   durationMin: number

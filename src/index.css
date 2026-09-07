@@ -609,6 +609,11 @@ input[type="date"] { color: #626a65; }
 .booking-companions strong, .booking-companions small { display: block; }
 .booking-companions strong { font-size: 11px; }
 .booking-companions small { margin-top: 1px; color: #98a4b6; font-size: 9px; }
+.planner-headcount { display: inline-flex; align-items: center; gap: 8px; min-height: 58px; color: #536078; font-size: 12px; font-weight: 700; }
+.planner-headcount input { width: 72px; min-height: 34px; padding: 0 9px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; color: #26354d; font: inherit; text-align: right; }
+.planner-headcount input:focus { border-color: #8ebeff; box-shadow: 0 0 0 3px #e7f1ff; }
+.planner-headcount input:disabled { background: #f3f6fa; color: #8591a4; cursor: not-allowed; }
+.planner-headcount em { color: #8591a4; font-size: 11px; font-style: normal; font-weight: 500; }
 .booking-tastes button, .booking-choice button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border: 1px solid #dce4ef; border-radius: 999px; background: #fff; color: #627089; font-size: 11px; font-weight: 700; }
 .booking-tastes button:hover, .booking-tastes button.active, .booking-choice button.active { border-color: #9cc5ff; background: #eff6ff; color: #1968d0; }
 .planner-more { margin-top: 16px; }
@@ -723,9 +728,11 @@ input[type="date"] { color: #626a65; }
 .result-filter-bar .tag-chip { padding: 7px 11px; border-color: transparent; background: #f3f6fa; color: #69778d; }
 .result-filter-bar .tag-chip:hover, .result-filter-bar .tag-chip.active { border-color: #a8caff; background: #eaf3ff; color: #1e69d0; }
 .result-sort { min-height: 34px; padding: 0 31px 0 10px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; background: #fff; color: #536078; font-size: 11px; cursor: pointer; }
-.result-budget-filter { display: inline-flex; align-items: center; gap: 7px; color: #536078; font-size: 12px; font-weight: 700; white-space: nowrap; }
-.result-budget-filter input { width: 96px; min-height: 34px; padding: 0 9px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; color: #26354d; font: inherit; text-align: right; }
-.result-budget-filter input:focus { border-color: #8ebeff; box-shadow: 0 0 0 3px #e7f1ff; }
+.result-budget-filter, .result-headcount-filter { display: inline-flex; align-items: center; gap: 7px; color: #536078; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.result-budget-filter input, .result-headcount-filter input { width: 96px; min-height: 34px; padding: 0 9px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; color: #26354d; font: inherit; text-align: right; }
+.result-headcount-filter input { width: 52px; }
+.result-budget-filter input:focus, .result-headcount-filter input:focus { border-color: #8ebeff; box-shadow: 0 0 0 3px #e7f1ff; }
+.result-headcount-filter input:disabled { background: #f3f6fa; color: #8591a4; cursor: not-allowed; }
 .result-filter-apply { min-height: 34px; padding: 0 12px; border: 1px solid #1e69d0; border-radius: 8px; background: #1e69d0; color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; }
 .result-filter-apply:hover { background: #1457b4; }
 .result-filter-error, .result-filter-status { margin: 8px 2px 0; font-size: 12px; }

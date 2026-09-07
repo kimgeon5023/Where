@@ -23,8 +23,9 @@ function isTripRequest(value: unknown): value is TripRequest {
     && typeof request.dateStart === 'string' && Boolean(request.dateStart)
     && typeof request.dateEnd === 'string' && Boolean(request.dateEnd)
     && ['friends', 'couple', 'family', 'alone'].includes(request.companion ?? '')
-    && typeof request.headcount === 'number'
-    && typeof request.budgetPerPerson === 'number'
+    && typeof request.headcount === 'number' && Number.isInteger(request.headcount) && request.headcount >= 1 && request.headcount <= 100
+    && (request.companion === 'alone' ? request.headcount === 1 : request.headcount >= 2)
+    && typeof request.budgetPerPerson === 'number' && Number.isInteger(request.budgetPerPerson) && request.budgetPerPerson >= 0 && request.budgetPerPerson <= 10_000_000
     && ['public', 'car'].includes(request.transport ?? '')
     && Array.isArray(request.likes) && Array.isArray(request.dislikes)
     && ['sunny', 'cloudy', 'rain'].includes(request.weather ?? '')
@@ -38,6 +39,60 @@ function readStoredTripRequest(): TripRequest | null {
   } catch {
     return null
   }
+}
+
+type ResultFilterState = { tags: Tag[]; budget: number }
+type RestoredResultState = { request: TripRequest | null; filters: ResultFilterState }
+
+const shareableTags: Tag[] = ['cafe', 'foodie', 'nature', 'activity', 'shopping', 'rest']
+const allTags: Tag[] = [...shareableTags, 'photo', 'sea', 'crowded', 'noraebang', 'pub', 'sashimi']
+
+function integerInRange(value: string | null, min: number, max: number) {
+  if (value === null || value.trim() === '') return null
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : null
+}
+
+function parseTags(value: string | null) {
+  if (!value) return []
+  return [...new Set(value.split(',').filter((tag): tag is Tag => allTags.includes(tag as Tag)))]
+}
+
+function parseFilterTags(value: string | null) { return parseTags(value).filter((tag) => shareableTags.includes(tag)) }
+
+function readUrlResultState(search: string): RestoredResultState | null {
+  const params = new URLSearchParams(search)
+  if (!params.has('s')) return null
+  const headcount = integerInRange(params.get('n'), 1, 100)
+  const budget = integerInRange(params.get('b'), 0, 10_000_000)
+  const request: TripRequest = {
+    start: params.get('s') || '', dateStart: params.get('d') || '', dateEnd: params.get('e') || '',
+    companion: (params.get('c') || '') as TripRequest['companion'], headcount: headcount ?? 0,
+    budgetPerPerson: budget ?? -1, transport: (params.get('t') || '') as TripRequest['transport'],
+    weather: (params.get('w') || '') as TripRequest['weather'], likes: parseTags(params.get('l')), dislikes: parseTags(params.get('dl')),
+  }
+  if (!isTripRequest(request)) return null
+  return { request, filters: { tags: parseFilterTags(params.get('ft')), budget: integerInRange(params.get('fb'), 0, 10_000_000) ?? 0 } }
+}
+
+function readInitialResultState(search: string, routeState: unknown): RestoredResultState {
+  const urlState = readUrlResultState(search)
+  if (urlState) return urlState
+  const request = isTripRequest(routeState) ? routeState : readStoredTripRequest()
+  return { request, filters: { tags: [], budget: 0 } }
+}
+
+function resultParams(request: TripRequest, filters: ResultFilterState, places: Place[] = []) {
+  const params = new URLSearchParams({
+    s: request.start, d: request.dateStart, e: request.dateEnd, c: request.companion, n: String(request.headcount),
+    b: String(request.budgetPerPerson), t: request.transport, w: request.weather,
+  })
+  if (request.likes.length) params.set('l', request.likes.join(','))
+  if (request.dislikes.length) params.set('dl', request.dislikes.join(','))
+  if (filters.tags.length) params.set('ft', filters.tags.join(','))
+  if (filters.budget > 0) params.set('fb', String(filters.budget))
+  if (places.length) params.set('p', places.slice(0, 5).map((place) => place.id).join(','))
+  return params
 }
 
 const companionLabels = { friends: '친구', couple: '연인', family: '가족', alone: '혼자' }
@@ -96,14 +151,8 @@ function SkeletonCard() {
   )
 }
 
-function shareCourse(req: TripRequest, places: Place[]) {
-  const params = new URLSearchParams({
-    s: req.start, d: req.dateStart, e: req.dateEnd,
-    c: req.companion, n: String(req.headcount),
-    b: String(req.budgetPerPerson), t: req.transport, w: req.weather,
-    l: req.likes.join(','), dl: req.dislikes.join(','),
-    p: places.slice(0, 5).map((p) => p.id).join(','),
-  })
+function shareCourse(req: TripRequest, filters: ResultFilterState, places: Place[]) {
+  const params = resultParams(req, filters, places)
   const url = `${window.location.origin}/result?${params.toString()}`
   if (navigator.clipboard) {
     navigator.clipboard.writeText(url).then(() => alert('코스 링크가 복사되었어요!'))
@@ -114,17 +163,17 @@ function shareCourse(req: TripRequest, places: Place[]) {
 
 export default function Result() {
   const location = useLocation()
+  const initialResultState = readInitialResultState(location.search, location.state)
   // Keep the restored request in React state. Parsing sessionStorage during every
   // render creates a new object and makes the place-search effect run repeatedly.
-  const [req, setReq] = useState<TripRequest | null>(() => {
-    return isTripRequest(location.state) ? location.state : readStoredTripRequest()
-  })
+  const [req, setReq] = useState<TripRequest | null>(() => initialResultState.request)
   const [excluded, setExcluded] = useState<string[]>([])
   const [day, setDay] = useState(0)
-  const [draftTags, setDraftTags] = useState<Tag[]>([])
-  const [appliedTags, setAppliedTags] = useState<Tag[]>([])
-  const [budgetFilter, setBudgetFilter] = useState(0)
-  const [budgetInput, setBudgetInput] = useState('')
+  const [draftTags, setDraftTags] = useState<Tag[]>(() => initialResultState.filters.tags)
+  const [appliedTags, setAppliedTags] = useState<Tag[]>(() => initialResultState.filters.tags)
+  const [budgetFilter, setBudgetFilter] = useState(() => initialResultState.filters.budget)
+  const [budgetInput, setBudgetInput] = useState(() => initialResultState.filters.budget ? String(initialResultState.filters.budget) : '')
+  const [headcountInput, setHeadcountInput] = useState(() => String(initialResultState.request?.headcount ?? 1))
   const [filterError, setFilterError] = useState('')
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
@@ -160,13 +209,19 @@ export default function Result() {
 
   const applyFilters = () => {
     const nextBudget = budgetInput ? Number(budgetInput) : 0
+    const nextHeadcount = Number(headcountInput)
     if (!Number.isInteger(nextBudget) || (budgetInput !== '' && nextBudget < 1) || nextBudget > 10_000_000) {
       setFilterError('예산은 1원부터 1,000만 원까지 입력해 주세요.')
+      return
+    }
+    if (!Number.isInteger(nextHeadcount) || nextHeadcount < 1 || nextHeadcount > 100 || (req?.companion !== 'alone' && nextHeadcount < 2)) {
+      setFilterError('인원수는 혼자일 때 1명, 동행 여행은 2명부터 100명까지 입력해 주세요.')
       return
     }
     setFilterError('')
     setAppliedTags(draftTags)
     setBudgetFilter(nextBudget)
+    setReq((current) => current ? { ...current, headcount: current.companion === 'alone' ? 1 : nextHeadcount } : current)
     setApiPlaces([])
     setHasMore(false)
     setSearchPage(1)
@@ -174,10 +229,54 @@ export default function Result() {
   }
 
   useEffect(() => {
-    if (!isTripRequest(location.state)) return
-    try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(location.state)) } catch { /* storage is optional */ }
-    setReq(location.state)
-  }, [location.state])
+    const restored = readInitialResultState(location.search, location.state)
+    if (!restored.request) return
+    setReq(restored.request)
+    setDraftTags(restored.filters.tags)
+    setAppliedTags(restored.filters.tags)
+    setBudgetFilter(restored.filters.budget)
+    setBudgetInput(restored.filters.budget ? String(restored.filters.budget) : '')
+    setHeadcountInput(String(restored.request.headcount))
+  }, [location.key, location.search])
+
+  useEffect(() => {
+    if (!req) return
+    try { sessionStorage.setItem(RESULT_REQUEST_STORAGE_KEY, JSON.stringify(req)) } catch { /* storage is optional */ }
+    const nextUrl = `${location.pathname}?${resultParams(req, { tags: appliedTags, budget: budgetFilter }).toString()}`
+    if (`${location.pathname}${location.search}` !== nextUrl) window.history.replaceState(window.history.state, '', nextUrl)
+  }, [req, appliedTags, budgetFilter, location.pathname, location.search])
+
+  useEffect(() => {
+    if (req?.companion === 'alone' && headcountInput !== '1') setHeadcountInput('1')
+  }, [req?.companion, headcountInput])
+
+  useEffect(() => {
+    setAppliedTags(draftTags)
+    setApiPlaces([])
+    setHasMore(false)
+    setSearchPage(1)
+    setDay(0)
+  }, [draftTags])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const nextBudget = budgetInput ? Number(budgetInput) : 0
+      const nextHeadcount = Number(headcountInput)
+      const validBudget = Number.isInteger(nextBudget) && nextBudget >= 0 && nextBudget <= 10_000_000
+      const validHeadcount = Number.isInteger(nextHeadcount) && nextHeadcount >= 1 && nextHeadcount <= 100 && (req?.companion === 'alone' || nextHeadcount >= 2)
+      if (!validBudget || !validHeadcount) return
+      setFilterError('')
+      setBudgetFilter(nextBudget)
+      setReq((current) => current && current.headcount !== (current.companion === 'alone' ? 1 : nextHeadcount)
+        ? { ...current, headcount: current.companion === 'alone' ? 1 : nextHeadcount }
+        : current)
+      setApiPlaces([])
+      setHasMore(false)
+      setSearchPage(1)
+      setDay(0)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [budgetInput, headcountInput, req?.companion])
 
   useEffect(() => { if (!tripNotice) return; const timer = window.setTimeout(() => setTripNotice(null), 3500); return () => window.clearTimeout(timer) }, [tripNotice])
 
@@ -210,7 +309,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
+      searchPlaces({ area: req.start, companion: req.companion, headcount: req.headcount, q: keyword.trim(), tags: appliedTags, includeLodging: false, maxPrice: maxPlacePrice, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
       .then(({ data, meta }) => {
         setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
         setHasMore(Boolean(meta.hasMore) && data.length > 0)
@@ -238,7 +337,11 @@ export default function Result() {
     return () => { window.clearTimeout(timer); if (retryTimer !== undefined) window.clearTimeout(retryTimer); controller.abort() }
   }, [req, appliedTags, maxPlacePrice, userLocation, keyword, searchRevision, searchPage])
 
-  const filterRequest = useMemo(() => req ? { ...req, likes: appliedTags, budgetPerPerson: budgetFilter } : null, [req, appliedTags, budgetFilter])
+  const filterRequest = useMemo(() => req ? {
+    ...req,
+    likes: [...new Set([...req.likes, ...appliedTags])],
+    budgetPerPerson: budgetFilter > 0 ? budgetFilter : req.budgetPerPerson,
+  } : null, [req, appliedTags, budgetFilter])
   const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => filterRequest ? buildItineraries(scored, filterRequest, dayCount, recommendationSeed) : [], [scored, filterRequest, dayCount, recommendationSeed])
@@ -285,11 +388,11 @@ export default function Result() {
       if (isPublic && trip.shareToken) {
         const shareUrl = `${window.location.origin}/share/trips/${trip.shareToken}`
         if (navigator.clipboard) await navigator.clipboard.writeText(shareUrl)
-        else { shareCourse(filterRequest, persistedCourseDays.flat()); window.prompt('공유 링크를 복사해주세요.', shareUrl) }
+        else { shareCourse(filterRequest, { tags: appliedTags, budget: budgetFilter }, persistedCourseDays.flat()); window.prompt('공유 링크를 복사해주세요.', shareUrl) }
         setTripNotice({ kind: 'success', text: '공개 코스를 저장하고 공유 링크를 복사했습니다.' })
       } else setTripNotice({ kind: 'success', text: '내 코스에 저장했습니다.' })
     } catch (error) { setTripNotice({ kind: 'error', text: error instanceof Error ? error.message : '코스를 저장하지 못했습니다.' }) } finally { setTripActionBusy(false) }
-  }, [filterRequest, user, persistedCourseDays, savedTrip, refreshTrips])
+  }, [filterRequest, user, persistedCourseDays, savedTrip, refreshTrips, appliedTags, budgetFilter])
   const startManualCourse = () => {
     setManualCourseDays({})
     setIsManualCourseEditing(true)
@@ -405,8 +508,9 @@ export default function Result() {
             <div className="tag-list" aria-label="장소 카테고리 필터">
               {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (draftTags.includes(item.value) ? ' active' : '')} onClick={() => setDraftTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value])}>{item.label}</button>)}
             </div>
+            <label className="result-headcount-filter">인원수 <input type="text" inputMode="numeric" value={headcountInput} disabled={req.companion === 'alone'} onChange={(event) => setHeadcountInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="여행 인원수 필터" /><span>명</span></label>
             <label className="result-budget-filter">1인 전체 예산 <input type="text" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액 입력" aria-label="1인 전체 여행 예산" /><span>원</span></label>
-            <button type="button" className="result-filter-apply" onClick={applyFilters}>적용</button>
+            <button type="button" className="result-filter-apply" onClick={applyFilters}>즉시 적용</button>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
