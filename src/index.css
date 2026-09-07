@@ -680,6 +680,15 @@ input[type="date"] { color: #626a65; }
 .result-filter-bar .tag-chip { padding: 7px 11px; border-color: transparent; background: #f3f6fa; color: #69778d; }
 .result-filter-bar .tag-chip:hover, .result-filter-bar .tag-chip.active { border-color: #a8caff; background: #eaf3ff; color: #1e69d0; }
 .result-sort { min-height: 34px; padding: 0 31px 0 10px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; background: #fff; color: #536078; font-size: 11px; cursor: pointer; }
+.result-headcount-filter { display: inline-flex; align-items: center; gap: 7px; color: #536078; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.result-headcount-filter input { width: 52px; min-height: 34px; padding: 0 9px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; color: #26354d; font: inherit; text-align: right; }
+.result-headcount-filter input:focus { border-color: #8ebeff; box-shadow: 0 0 0 3px #e7f1ff; }
+.result-headcount-filter input:disabled { background: #f3f6fa; color: #8591a4; cursor: not-allowed; }
+.planner-headcount { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; color: #536078; font-size: 13px; font-weight: 700; }
+.planner-headcount input { width: 70px; min-height: 38px; padding: 0 9px; border: 1px solid #dae3ef; border-radius: 8px; outline: 0; color: #26354d; font: inherit; text-align: right; }
+.planner-headcount input:focus { border-color: #8ebeff; box-shadow: 0 0 0 3px #e7f1ff; }
+.planner-headcount input:disabled { background: #f3f6fa; color: #8591a4; cursor: not-allowed; }
+.planner-headcount em { color: #69778d; font-size: 11px; font-style: normal; font-weight: 500; }
 .result-budget-filter { display: inline-flex; align-items: center; gap: 7px; color: #536078; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .result-budget-filter span { display: inline-flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 8px; border: 1px solid #dae3ef; border-radius: 8px; background: #fff; }
 .result-budget-filter input { width: 74px; border: 0; outline: 0; color: #26354d; font: inherit; text-align: right; }
