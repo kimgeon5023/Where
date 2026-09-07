@@ -22,19 +22,25 @@ function preference(place: Place, likes: Tag[]) { return likes.find((tag) => pla
 function jitter(id: string, seed: number) { let value = Math.floor(seed * 1000003); for (const char of id) value = ((value * 31) + char.charCodeAt(0)) >>> 0; return (value % 700) / 100 }
 function tripDays(req: TripRequest) { return Math.max(1, Math.round((new Date(req.dateEnd).getTime() - new Date(req.dateStart).getTime()) / 86400000) + 1) }
 function visitCost(place: Place, req: TripRequest) { return place.category === 'lodging' && place.lodging ? Math.round(place.lodging.pricePerNight / Math.max(1, req.headcount)) : place.price }
+function groupSizeFit(place: Place, headcount: number) {
+  if (headcount <= 2) return 12
+  if (headcount <= 4) return 10
+  return ['activity', 'food', 'tour'].includes(place.category) ? 12 : place.category === 'cafe' ? 8 : 5
+}
 
 export function recommend(places: Place[], req: TripRequest, excludedIds: string[] = [], seed = 0): ScoredPlace[] {
   return places.filter((place) => !excludedIds.includes(place.id) && !place.tags.some((tag) => req.dislikes.includes(tag))).map((place) => {
     const liked = place.tags.filter((tag) => req.likes.includes(tag)).length
     const taste = Math.min(28, liked * 14); const group = place.groupFit.includes(req.companion) ? 18 : 5
     const style = companionStyle[req.companion].includes(place.category) ? 14 : 6
+    const groupSize = groupSizeFit(place, req.headcount)
     const dailyBudget = req.budgetPerPerson / tripDays(req); const cost = visitCost(place, req)
     const budget = cost <= dailyBudget * .45 ? 18 : cost <= dailyBudget ? 12 : 1
     const weather = req.weather === 'rain' ? (place.indoor ? 18 : 1) : req.weather === 'sunny' ? (!place.indoor ? 16 : 7) : (place.indoor ? 12 : 10)
     const maxDistance = req.transport === 'car' ? 14 : 5
     const travel = place.distanceKm === undefined ? 6 : Math.max(1, Math.round((maxDistance - place.distanceKm) * 1.4))
-    const detail = [{ label: '취향 일치', max: 28, value: taste }, { label: '동행 적합', max: 18, value: group }, { label: '여행 스타일', max: 14, value: style }, { label: '예산 적합', max: 18, value: budget }, { label: '날씨 적합', max: 18, value: weather }, { label: '이동 편의', max: 18, value: travel }]
-    const reasons = [...(liked ? ['선택한 취향과 잘 맞아요.'] : []), ...(companionStyle[req.companion].includes(place.category) ? ['동행 유형에 어울리는 장소예요.'] : []), ...(place.distanceKm !== undefined ? [`출발 기준 ${place.distanceKm.toFixed(1)}km 거리예요.`] : [])]
+    const detail = [{ label: '취향 일치', max: 28, value: taste }, { label: '동행 적합', max: 18, value: group }, { label: '인원 적합', max: 12, value: groupSize }, { label: '여행 스타일', max: 14, value: style }, { label: '예산 적합', max: 18, value: budget }, { label: '날씨 적합', max: 18, value: weather }, { label: '이동 편의', max: 18, value: travel }]
+    const reasons = [...(liked ? ['선택한 취향과 잘 맞아요.'] : []), ...(companionStyle[req.companion].includes(place.category) ? ['동행 유형에 어울리는 장소예요.'] : []), ...(req.headcount >= 5 && groupSize >= 10 ? [`${req.headcount}명이 함께 가기 좋은 유형의 장소예요.`] : []), ...(place.distanceKm !== undefined ? [`출발 기준 ${place.distanceKm.toFixed(1)}km 거리예요.`] : [])]
     return { place, score: 0, fitScore: detail.reduce((sum, item) => sum + item.value, 0) + jitter(place.id, seed), detail, reasons }
   }).sort((a, b) => b.fitScore - a.fitScore)
 }

@@ -83,6 +83,8 @@ export default function Result() {
   const [selectedTags, setSelectedTags] = useState<Tag[]>([])
   const [budgetFilter, setBudgetFilter] = useState(50000)
   const [budgetInput, setBudgetInput] = useState('50000')
+  const [headcountInput, setHeadcountInput] = useState(() => String(req?.headcount ?? 1))
+  const [headcountFilter, setHeadcountFilter] = useState(() => req?.headcount ?? 1)
   const [sort, setSort] = useState<SortKey>('score')
   const [apiPlaces, setApiPlaces] = useState<Place[]>([])
   const [apiError, setApiError] = useState('')
@@ -109,9 +111,12 @@ export default function Result() {
     const timer = window.setTimeout(() => {
       const next = Number(budgetInput)
       if (Number.isFinite(next) && next > 0) setBudgetFilter(Math.floor(next))
+      const people = Number(headcountInput)
+      const validPeople = Number.isInteger(people) && people >= 1 && people <= 100 && (req?.companion === 'alone' || people >= 2)
+      if (validPeople) setHeadcountFilter(req?.companion === 'alone' ? 1 : people)
     }, 300)
     return () => window.clearTimeout(timer)
-  }, [budgetInput])
+  }, [budgetInput, headcountInput, req?.companion])
 
   useEffect(() => {
     if (!navigator.geolocation) return
@@ -126,7 +131,7 @@ export default function Result() {
       setApiError('')
       setLoading(true)
       const origin = userLocation ?? { lat: 37.5668, lng: 126.978 }
-      searchPlaces({ area: req.start, companion: req.companion, q: keyword.trim(), tags: selectedTags, includeLodging: false, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
+      searchPlaces({ area: req.start, companion: req.companion, headcount: headcountFilter, q: keyword.trim(), tags: selectedTags, includeLodging: false, page: searchPage, limit: 20, lat: origin.lat, lng: origin.lng, radius: 6_000 }, controller.signal)
       .then(({ data, meta }) => {
         setApiPlaces((current) => searchPage === 1 ? data : [...current, ...data.filter((place) => !current.some((existing) => existing.id === place.id))])
         setHasMore(Boolean(meta.hasMore) && data.length > 0)
@@ -140,9 +145,9 @@ export default function Result() {
       .finally(() => setLoading(false))
     }, 300)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [req, selectedTags, userLocation, keyword, searchRevision, searchPage])
+  }, [req, selectedTags, headcountFilter, userLocation, keyword, searchRevision, searchPage])
 
-  const filterRequest = useMemo(() => req ? { ...req, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter])
+  const filterRequest = useMemo(() => req ? { ...req, headcount: headcountFilter, likes: selectedTags, budgetPerPerson: budgetFilter } : null, [req, selectedTags, budgetFilter, headcountFilter])
   const scored = useMemo(() => filterRequest ? recommend(apiPlaces, filterRequest, excluded, recommendationSeed) : [], [filterRequest, apiPlaces, excluded, recommendationSeed])
   const sortedScored = useMemo(() => sortScored(scored, sort), [scored, sort])
   const itineraries = useMemo(() => req ? buildItineraries(scored, req, dayCount, recommendationSeed) : [], [scored, req, dayCount, recommendationSeed])
@@ -230,6 +235,7 @@ export default function Result() {
             <div className="tag-list" aria-label="장소 카테고리 필터">
               {searchCategories.map((item) => <button type="button" key={item.value} className={'tag-chip' + (selectedTags.includes(item.value) ? ' active' : '')} onClick={() => { setApiPlaces([]); setHasMore(false); setSearchPage(1); setSelectedTags((current) => current.includes(item.value) ? current.filter((tag) => tag !== item.value) : [...current, item.value]); setDay(0) }}>{item.label}</button>)}
             </div>
+            <label className="result-headcount-filter">인원수 <input type="number" min={req.companion === 'alone' ? 1 : 2} max="100" inputMode="numeric" value={headcountInput} disabled={req.companion === 'alone'} onChange={(event) => setHeadcountInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="여행 인원수 필터" /><span>명</span></label>
             <label className="result-budget-filter">1인 예산 <span><input type="number" min="1" step="1000" inputMode="numeric" value={budgetInput} onChange={(event) => setBudgetInput(event.target.value.replace(/[^0-9]/g, ''))} aria-label="1인 예산" />원</span>{budgetInput !== '' && Number(budgetInput) > 0 ? <small>{Number(budgetInput).toLocaleString()}원</small> : <small>1원 이상 입력</small>}</label>
             <select className="result-sort" value={sort} onChange={(e) => setSort(e.target.value as SortKey)} aria-label="정렬 기준">
               {sortOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
