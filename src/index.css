@@ -780,3 +780,47 @@ input[type="date"] { color: #626a65; }
   .result-filter-bar { align-items: stretch; }
   .result-sort { width: 100%; }
 }
+
+/* Keep the recommendation list compact on desktop while preserving the
+   single-column reading flow on tablets and phones. */
+.result-booking-shell .place-list > .place-card {
+  block-size: 380px;
+  min-block-size: 380px;
+  max-block-size: 380px;
+  grid-template-rows: minmax(0, 1fr);
+}
+.result-booking-shell .place-body {
+  block-size: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (min-width: 761px) {
+  .result-booking-shell .place-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-booking-shell .place-list > .place-card {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+    block-size: 372px;
+    min-block-size: 372px;
+    max-block-size: 372px;
+  }
+  .result-booking-shell .place-image { flex: 0 0 108px; height: 108px; min-height: 108px; }
+  .result-booking-shell .place-body { padding: 13px; }
+  .result-booking-shell .place-body h3 { font-size: 16px; }
+  .result-booking-shell .place-description { -webkit-line-clamp: 1; }
+  .result-booking-shell .reason-row { display: none; }
+  .result-booking-shell .save-button { width: 30px; height: 30px; top: 9px; right: 9px; }
+  .result-booking-shell .save-button svg { width: 14px; height: 14px; }
+}
+
+@media (max-width: 520px) {
+  .result-booking-shell .place-list > .place-card {
+    block-size: 420px;
+    min-block-size: 420px;
+    max-block-size: 420px;
+  }
+  .result-booking-shell .place-image { height: 112px; min-height: 112px; }
+}
