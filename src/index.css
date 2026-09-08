@@ -65,8 +65,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .logout-item { color: #b86d5c; }
 .profile-menu-exit { width: 100%; margin-top: 5px; padding: 8px; border: 0; border-radius: 7px; background: transparent; color: #adb5ad; font-size: 10px; }
 .profile-menu-exit:hover { background: #f7f8f5; color: #68736a; }
-.modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(25, 37, 29, .42); backdrop-filter: blur(4px); }
-.login-modal { position: relative; width: min(100%, 390px); padding: 38px 34px 31px; border-radius: 24px; background: #fff; text-align: center; box-shadow: 0 25px 70px rgba(26, 48, 33, .2); }
+.modal-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; overflow-y: auto; background: rgba(25, 37, 29, .42); backdrop-filter: blur(4px); }
+.login-modal { position: relative; width: min(100%, 390px); max-height: calc(100dvh - 40px); padding: 38px 34px 31px; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; border-radius: 24px; background: #fff; text-align: center; box-shadow: 0 25px 70px rgba(26, 48, 33, .2); }
 .modal-close { position: absolute; top: 15px; right: 15px; display: grid; place-items: center; width: 32px; height: 32px; border: 0; border-radius: 50%; background: #f4f7f3; color: #849087; }
 .login-mark { display: grid; place-items: center; width: 43px; height: 43px; margin: 0 auto 16px; border-radius: 50%; background: var(--ink); color: #fff; font: 500 17px 'DM Mono', monospace; transform: rotate(-10deg); }
 .login-modal h2 { margin: 10px 0 11px; color: var(--ink); font-size: 28px; line-height: 1.25; letter-spacing: -.08em; }
@@ -92,6 +92,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .signup-form input::placeholder { color: #b5bdb6; }
 .signup-error { margin: 1px 0 0 !important; color: var(--coral) !important; font-size: 10px !important; line-height: 1.4 !important; }
 .signup-submit { width: 100%; min-height: 45px; margin-top: 4px; font-size: 12px; }
+@media (max-height: 680px) {
+  .modal-backdrop { place-items: start center; padding: 10px 14px; }
+  .login-modal { max-height: calc(100dvh - 20px); padding: 30px 24px 24px; }
+  .login-mark { margin-bottom: 8px; }
+  .login-modal h2 { margin: 6px 0 8px; font-size: 23px; }
+  .login-modal p { margin-bottom: 14px; }
+}
 .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #5cc294; margin-right: 6px; box-shadow: 0 0 0 4px #e3f4eb; }
 .eyebrow, .step-label { font: 500 10px 'DM Mono', monospace; letter-spacing: .16em; color: var(--green); }
 .hero-copy { padding: 55px 0 48px; }

@@ -26,6 +26,11 @@ export default function LoginModal({ open, onClose, onBeforeGoogleLogin }: Login
   const [loginUsername, setLoginUsername] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
+  const keepFocusedInputVisible = (event: React.FocusEvent<HTMLInputElement>) => {
+    const input = event.currentTarget
+    window.setTimeout(() => input.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250)
+  }
+
   if (!open) return null
 
   const changeMode = (nextMode: ModalMode) => {
@@ -76,9 +81,10 @@ export default function LoginModal({ open, onClose, onBeforeGoogleLogin }: Login
     try {
       onBeforeGoogleLogin?.()
       await signIn('google')
-    } catch {
+      onClose()
+    } catch (loginError) {
       setSocialLoading(false)
-      setError('소셜 로그인을 시작하지 못했습니다.')
+      setError(loginError instanceof Error ? loginError.message : 'Google 로그인에 실패했습니다.')
     }
   }
 
@@ -109,8 +115,8 @@ export default function LoginModal({ open, onClose, onBeforeGoogleLogin }: Login
         </> : mode === 'login' ? <>
           <p>가입한 아이디와 비밀번호를<br />입력해 주세요.</p>
           <form className="signup-form" onSubmit={(event) => void submitLogin(event)}>
-            <label><span>아이디</span><input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
-            <label><span>비밀번호</span><input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} placeholder="비밀번호 입력" autoComplete="current-password" /></label>
+            <label><span>아이디</span><input value={loginUsername} onChange={(event) => setLoginUsername(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
+            <label><span>비밀번호</span><input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="비밀번호 입력" autoComplete="current-password" /></label>
             {error && <p className="signup-error">{error}</p>}
             <button type="submit" className="primary-button signup-submit" disabled={loading}>{loading ? '로그인 중...' : '로그인'}</button>
           </form>
@@ -119,10 +125,10 @@ export default function LoginModal({ open, onClose, onBeforeGoogleLogin }: Login
         </> : <>
           <p>아이디와 비밀번호를 입력해<br />나만의 여행 프로필을 만들어 보세요.</p>
           <form className="signup-form" onSubmit={(event) => void submitSignup(event)}>
-            <label><span>닉네임</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="여행자 이름" maxLength={20} /></label>
-            <label><span>아이디</span><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
-            <label><span>비밀번호</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="영문 + 숫자, 8자 이상" autoComplete="new-password" /></label>
-            <label><span>비밀번호 확인</span><input type="password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} placeholder="비밀번호를 다시 입력" autoComplete="new-password" /></label>
+            <label><span>닉네임</span><input value={name} onChange={(event) => setName(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="여행자 이름" maxLength={20} /></label>
+            <label><span>아이디</span><input value={username} onChange={(event) => setUsername(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="영문·숫자·밑줄 4~20자" maxLength={20} autoComplete="username" /></label>
+            <label><span>비밀번호</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="영문 + 숫자, 8자 이상" autoComplete="new-password" /></label>
+            <label><span>비밀번호 확인</span><input type="password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} onFocus={keepFocusedInputVisible} placeholder="비밀번호를 다시 입력" autoComplete="new-password" /></label>
             {error && <p className="signup-error">{error}</p>}
             <button type="submit" className="primary-button signup-submit" disabled={loading}>{loading ? '가입 중...' : '회원가입 완료'}</button>
           </form>
